@@ -2,18 +2,10 @@ name: Build .NET Project
 
 on:
   workflow_call:
-    inputs:
-      working-directory:
-        required: true
-        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}
-
     steps:
       - uses: actions/checkout@v4
       - name: Setup .NET

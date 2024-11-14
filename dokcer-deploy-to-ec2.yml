@@ -18,6 +18,10 @@ on:
       aws-region:
         required: true
         type: string
+      port:
+        required: true
+        type: string  # Port number for each microservice
+
     secrets:
       EC2_KEY: ${{ secrets.EC2_KEY }}
 
@@ -34,6 +38,6 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             docker pull ${{ inputs.docker-image }}
-            docker stop loans-api || true
-            docker rm loans-api || true
-            docker run -d -p 80:80 --name loans-api ${{ inputs.docker-image }}
+            docker stop ${{ inputs.docker-image }} || true
+            docker rm ${{ inputs.docker-image }} || true
+            docker run -d -p ${{ inputs.port }}:80 --name ${{ inputs.docker-image }} ${{ inputs.docker-image }}

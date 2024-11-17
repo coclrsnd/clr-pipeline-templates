@@ -36,5 +36,8 @@ jobs:
           # Build the Docker image for the specific service using docker-compose.yml and docker-compose.override.yml
           docker-compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
 
+          # List the images
+          docker ps
+
           # Tag the built image with the final tag specified in inputs
           docker tag ${{ inputs.service-name }}:latest ${{ inputs.docker-tag }}

@@ -37,4 +37,4 @@ jobs:
           docker-compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
 
           # Tag the built image with the final tag specified in inputs
-          docker tag ${{ inputs.service-name }} ${{ inputs.docker-tag }}
+          docker tag ${{ inputs.service-name }}:latest ${{ inputs.docker-tag }}

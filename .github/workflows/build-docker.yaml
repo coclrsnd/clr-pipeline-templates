@@ -9,6 +9,9 @@ on:
       working-directory:
         required: true
         type: string
+      docker-file-directory:
+        required: true
+        type: string
 
 jobs:
   build-docker:
@@ -22,4 +25,4 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Build Docker Image
-        run: docker build -t ${{ inputs.docker-tag }} .
+        run: docker build -t ${{ inputs.docker-tag }} -f ${{ inputs.docker-file-directory }} .

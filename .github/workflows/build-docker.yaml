@@ -12,6 +12,9 @@ on:
       compose-service-tag:
         required: false
         type: string
+      service-name:
+        required: true
+        type: string
 
 jobs:
   build-docker:
@@ -31,10 +34,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y docker-compose
 
-      - name: Build Docker Image using Docker Compose
+      - name: Build Docker Image for specific service using Docker Compose
         run: |
-          # Build the Docker image using both docker-compose.yml and docker-compose.override.yml
-          docker-compose -f docker-compose.yml -f docker-compose.override.yml build --build-arg TAG=${{ inputs.compose-service-tag }}
+          # Build the Docker image for the specific service using docker-compose.yml and docker-compose.override.yml
+          docker-compose -f docker-compose.yml -f docker-compose.override.yml build --build-arg TAG=${{ inputs.compose-service-tag }} ${{ inputs.service-name }}
 
           # Tag the built image with the final tag specified in inputs
           docker tag ${{ inputs.compose-service-tag }} ${{ inputs.docker-tag }}

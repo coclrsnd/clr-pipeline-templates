@@ -1,0 +1,25 @@
+name: Build Docker Image
+
+on:
+  workflow_call:
+    inputs:
+      docker-tag:
+        required: true
+        type: string
+      working-directory:
+        required: true
+        type: string
+
+jobs:
+  build-docker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build Docker Image
+        run: docker build -t ${{ inputs.docker-tag }} .

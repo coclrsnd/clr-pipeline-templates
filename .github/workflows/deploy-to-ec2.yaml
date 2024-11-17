@@ -1,0 +1,38 @@
+name: Deploy to EC2
+
+on:
+  workflow_call:
+    inputs:
+      docker-tag:
+        required: true
+        type: string
+    secrets:
+      AWS_REGION:
+        required: true
+      AWS_ECR_REPOSITORY:
+        required: true
+      AWS_EC2_HOST:
+        required: true
+      AWS_EC2_USER: 
+        required: true        
+      AWS_EC2_KEY: 
+        required: true
+      AWS_ACCOUNT_ID: 
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v0.1.3
+        with:
+          host: ${{ secrets.AWS_EC2_HOST }}
+          username: ${{ secrets.AWS_EC2_USER }}
+          key: ${{ secrets.AWS_EC2_KEY }}
+          script: |
+            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
+            docker stop loans-api || true
+            docker rm loans-api || true
+            docker run -d -p 80:80 --name loans-api ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}

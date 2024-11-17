@@ -9,6 +9,9 @@ on:
       working-directory:
         required: true
         type: string
+      compose-service-tag:
+        required: false
+        type: string
 
 jobs:
   build-docker:
@@ -19,7 +22,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-      - name: Build Docker Image
-        run: docker build -t ${{ inputs.docker-tag }} -f ${{ inputs.working-directory }}/Dockerfile .
+
+      - name: Set up Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
+      - name: Build Docker Image using Docker Compose
+        run: |
+          # Build the Docker image using both docker-compose.yml and docker-compose.override.yml
+          docker-compose -f docker-compose.yml -f docker-compose.override.yml build --build-arg TAG=${{ inputs.compose-service-tag }}
+
+          # Tag the built image with the final tag specified in inputs
+          docker tag ${{ inputs.compose-service-tag }} ${{ inputs.docker-tag }}

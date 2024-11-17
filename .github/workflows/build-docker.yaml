@@ -38,6 +38,7 @@ jobs:
 
           # List the images
           docker ps
+          docker images
 
           # Tag the built image with the final tag specified in inputs
           docker tag ${{ inputs.service-name }}:latest ${{ inputs.docker-tag }}

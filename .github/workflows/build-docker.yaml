@@ -1,4 +1,4 @@
-name: Build Docker Image
+name: Build and Push container to ECR
 
 on:
   workflow_call:
@@ -12,33 +12,60 @@ on:
       service-name:
         required: true
         type: string
+    secrets:
+      AWS_REGION:
+        required: true
+      AWS_ECR_REPOSITORY:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY: 
+        required: true
+      AWS_ACCOUNT_ID: 
+        required: true
 
 jobs:
-  build-docker:
+  build-and-push-container-to-ecr:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
 
     steps:
+      # Step 1: Check out the code
       - uses: actions/checkout@v4
 
+      # Step 2: Set up Docker CLI and Docker Compose
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Set up Docker Compose
+      - name: Install Docker Compose
         run: |
           sudo apt-get update
           sudo apt-get install -y docker-compose
 
-      - name: Build Docker Image for specific service using Docker Compose
+      # Step 3: Log in to AWS ECR
+      - name: Log in to AWS ECR
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+      # Step 4: Build Docker image using Docker Compose
+      - name: Build Docker Image with Docker Compose
         run: |
-          # Build the Docker image for the specific service using docker-compose.yml and docker-compose.override.yml
           docker-compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
 
-          # List the images
-          docker ps
-          docker images
+      # Step 5: Tag Docker image
+      - name: Tag Docker Image
+        run: |
+          docker tag ${{ inputs.service-name }}:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
 
-          # Tag the built image with the final tag specified in inputs
-          docker tag ${{ inputs.service-name }} ${{ inputs.docker-tag }}
+      # Step 6: Push Docker image to ECR
+      - name: Push Docker Image to ECR
+        run: |
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}

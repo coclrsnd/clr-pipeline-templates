@@ -1,0 +1,69 @@
+name: Deploy to ECS
+
+on:
+  workflow_call:
+    inputs:
+      docker-tag:
+        required: true
+        type: string
+      service-name:
+        required: true
+        type: string
+      working-directory:
+        required: true
+        type: string
+    secrets:
+      AWS_REGION:
+        required: true
+      AWS_ECR_REPOSITORY:
+        required: true
+      AWS_ACCOUNT_ID:
+        required: true
+      ECS_CLUSTER_NAME:
+        required: true
+      ECS_SERVICE_NAME:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}  # Set the working directory globally
+
+    steps:
+      - name: Set up AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }} .
+
+      - name: Push Docker Image to ECR
+        run: |
+          docker tag ${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }} ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
+
+      - name: Update ECS Service
+        run: |
+          # Update ECS service with the new image
+          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ secrets.ECS_SERVICE_NAME }} --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ secrets.ECS_SERVICE_NAME }} --force-new-deployment --task-definition $ecs_task_definition
+
+      - name: Wait for ECS service to stabilize
+        run: |
+          # Wait for ECS service to stabilize
+          aws ecs wait services-stable --cluster ${{ secrets.ECS_CLUSTER_NAME }} --services ${{ secrets.ECS_SERVICE_NAME }}

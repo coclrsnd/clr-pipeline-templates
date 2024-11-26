@@ -26,6 +26,7 @@ on:
 
 jobs:
   build-and-push-container-to-ecr:
+    name: Build and Push Docker
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -1,0 +1,40 @@
+name: Build Next.js Project
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout Code
+
+      # Setup Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'  
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          npm install --force
+
+      # Build the Next.js app
+      - name: Build Next.js app
+        run: |
+          npm run build
+
+      # Optional: Run tests (if any testing framework is in place, like Jest)
+      - name: Run tests
+        run: |
+          npm run test 

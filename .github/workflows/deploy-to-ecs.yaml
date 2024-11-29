@@ -30,6 +30,7 @@ on:
 
 jobs:
   deploy:
+    name: Deploy in ECS
     runs-on: ubuntu-latest
     defaults:
       run:

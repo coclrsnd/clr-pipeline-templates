@@ -21,8 +21,6 @@ on:
         required: true
       ECS_CLUSTER_NAME:
         required: true
-      ECS_SERVICE_NAME:
-        required: true
       AWS_ACCESS_KEY_ID:
         required: true
       AWS_SECRET_ACCESS_KEY:
@@ -61,10 +59,10 @@ jobs:
       - name: Update ECS Service
         run: |
           # Update ECS service with the new image
-          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ secrets.ECS_SERVICE_NAME }} --query 'taskDefinition.taskDefinitionArn' --output text)
-          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ secrets.ECS_SERVICE_NAME }} --force-new-deployment --task-definition $ecs_task_definition
+          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ inputs.service-name }} --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ inputs.service-name }} --force-new-deployment --task-definition $ecs_task_definition
 
       - name: Wait for ECS service to stabilize
         run: |
           # Wait for ECS service to stabilize
-          aws ecs wait services-stable --cluster ${{ secrets.ECS_CLUSTER_NAME }} --services ${{ secrets.ECS_SERVICE_NAME }}
+          aws ecs wait services-stable --cluster ${{ secrets.ECS_CLUSTER_NAME }} --services ${{ inputs.service-name }}

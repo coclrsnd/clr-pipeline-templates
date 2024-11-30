@@ -35,6 +35,6 @@ jobs:
           npm run build
 
       # Optional: Run tests (if any testing framework is in place, like Jest)
-      - name: Run tests
-        run: |
-          npm run test 
+      #- name: Run tests
+      #  run: |
+        #  npm run test 

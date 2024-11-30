@@ -50,9 +50,9 @@ jobs:
       - name: Get current ECS Task Definition
         id: ecs-task-def
         run: |
-          # Fetch the current ECS task definition
-          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ inputs.service-name }} --region ${{ secrets.AWS_REGION }} --query 'taskDefinition' --output json)
-          echo "ecs_task_definition=$ecs_task_definition" >> $GITHUB_ENV
+          ecs_task_definition=$(aws ecs describe-task-definition --task-definition loanapi --region ${{ secrets.AWS_REGION }} --query 'taskDefinition' --output json)
+          encoded_task_definition=$(echo "$ecs_task_definition" | base64)
+          echo "ecs_task_definition=$encoded_task_definition" >> $GITHUB_ENV
 
       # Step 4: Modify task definition with new Docker image tag
       - name: Update ECS Task Definition with new image

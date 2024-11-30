@@ -58,18 +58,17 @@ jobs:
       - name: Update ECS Task Definition with new image
         run: |
           # Modify the ECS task definition's container image with the new Docker tag
-          updated_task_definition=$(echo "${{ env.ecs_task_definition }}" | jq --arg image "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:${{ inputs.docker-tag }}" \
+          updated_task_definition=$(echo "$ecs_task_definition" | jq --arg image "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:${{ inputs.docker-tag }}" \
             '.containerDefinitions[0].image = $image')
-
-          # Register the new ECS task definition
-          new_task_definition=$(echo "$updated_task_definition" | aws ecs register-task-definition \
-            --family ${{ inputs.service-name }} \
-            --container-definitions file:///dev/stdin \
-            --query 'taskDefinition.taskDefinitionArn' --output text)
-
-          # Output the new task definition ARN
-          echo "New task definition ARN: $new_task_definition"
-          echo "new_task_definition=$new_task_definition"
+            
+            # Register the new ECS task definition
+            new_task_definition=$(echo "$updated_task_definition" | aws ecs register-task-definition \
+              --family loanapi \
+              --container-definitions file:///dev/stdin \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+              
+              echo "New task definition ARN: $new_task_definition"
+              echo "new_task_definition=$new_task_definition"
 
       # Step 5: Update ECS Service with the new task definition
       - name: Update ECS Service

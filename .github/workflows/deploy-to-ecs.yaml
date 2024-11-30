@@ -35,6 +35,8 @@ jobs:
         working-directory: ${{ inputs.working-directory }}  # Set the working directory globally
 
     steps:
+    # Step 1: Check out the code
+      - uses: actions/checkout@v4
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:

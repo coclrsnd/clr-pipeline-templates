@@ -38,6 +38,9 @@ jobs:
       # Step 1: Check out the code
       - uses: actions/checkout@v4
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       # Step 2: Set up AWS credentials
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -46,29 +49,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # Step 3: Retrieve the current ECS task definition
-      - name: Retrieve current ECS task definition
+      # Step 3: Update the ECS service to deploy the latest image
+      - name: Update ECS service to use the latest image
         run: |
-          aws ecs describe-task-definition \
-            --task-definition ${{ inputs.service-name }} \
-            --region ${{ secrets.AWS_REGION }} \
-            --query "taskDefinition" \
-            --output json > ecs-task-definition.json
-
-      # Step 4: Update the task definition with the new container image
-      - name: Update task definition with new image
-        run: |
-          IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
-          jq --arg IMAGE "$IMAGE" \
-             '.containerDefinitions[0].image = $IMAGE' ecs-task-definition.json > ecs-task-definition-updated.json
-
-      # Step 5: Deploy the updated ECS task definition
-      - name: Deploy to Amazon ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
-          service: ${{ inputs.service-name }}
-          task-definition: ecs-task-definition-updated.json
-          container-name: ${{ inputs.service-name }}
-          image: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
+            --service ${{ inputs.service-name }} \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}

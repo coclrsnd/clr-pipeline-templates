@@ -35,8 +35,10 @@ jobs:
         working-directory: ${{ inputs.working-directory }}  # Set the working directory globally
 
     steps:
-    # Step 1: Check out the code
+      # Step 1: Check out the code
       - uses: actions/checkout@v4
+      
+      # Step 2: Set up AWS credentials
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -44,12 +46,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # Step 3: Register a new ECS task definition with the new Docker image
+      - name: Register ECS Task Definition with new image
+        run: |
+          # Get the current task definition
+          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ inputs.service-name }} --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          # Create a new task definition revision with the updated image tag
+          new_task_definition=$(aws ecs register-task-definition \
+            --family ${{ inputs.service-name }} \
+            --container-definitions "$(aws ecs describe-task-definition --task-definition $ecs_task_definition --query 'taskDefinition.containerDefinitions' --output json | jq '.[0] | .image = \"${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}\"')" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          echo "New task definition ARN: $new_task_definition"
+
+      # Step 4: Update ECS Service to use the new task definition
       - name: Update ECS Service
         run: |
-          # Update ECS service with the new image
-          ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ inputs.service-name }} --query 'taskDefinition.taskDefinitionArn' --output text)
-          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ inputs.service-name }} --force-new-deployment --task-definition $ecs_task_definition
+          # Update ECS service with the new image (task definition)
+          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ inputs.service-name }} --force-new-deployment --task-definition $new_task_definition
 
+      # Step 5: Wait for ECS service to stabilize
       - name: Wait for ECS service to stabilize
         run: |
           # Wait for ECS service to stabilize

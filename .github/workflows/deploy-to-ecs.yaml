@@ -37,7 +37,7 @@ jobs:
     steps:
       # Step 1: Check out the code
       - uses: actions/checkout@v4
-      
+
       # Step 2: Set up AWS credentials
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -50,13 +50,14 @@ jobs:
       - name: Get current ECS Task Definition
         id: ecs-task-def
         run: |
+          # Fetch the current ECS task definition
           ecs_task_definition=$(aws ecs describe-task-definition --task-definition ${{ inputs.service-name }} --query 'taskDefinition' --output json)
           echo "ecs_task_definition=$ecs_task_definition" >> $GITHUB_ENV
 
       # Step 4: Modify task definition with new Docker image tag
       - name: Update ECS Task Definition with new image
         run: |
-          # Replace the image tag in the task definition using jq
+          # Modify the ECS task definition's container image with the new Docker tag
           updated_task_definition=$(echo "${{ env.ecs_task_definition }}" | jq --arg image "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:${{ inputs.docker-tag }}" \
             '.containerDefinitions[0].image = $image')
 
@@ -66,17 +67,18 @@ jobs:
             --container-definitions file:///dev/stdin \
             --query 'taskDefinition.taskDefinitionArn' --output text)
 
+          # Output the new task definition ARN
           echo "New task definition ARN: $new_task_definition"
           echo "new_task_definition=$new_task_definition" >> $GITHUB_ENV
 
       # Step 5: Update ECS Service with the new task definition
       - name: Update ECS Service
         run: |
-          # Update ECS service with the new image (task definition)
+          # Update the ECS service with the new task definition
           aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ inputs.service-name }} --force-new-deployment --task-definition ${{ env.new_task_definition }}
 
       # Step 6: Wait for ECS service to stabilize
       - name: Wait for ECS service to stabilize
         run: |
-          # Wait for ECS service to stabilize
+          # Wait for the ECS service to stabilize
           aws ecs wait services-stable --cluster ${{ secrets.ECS_CLUSTER_NAME }} --services ${{ inputs.service-name }}

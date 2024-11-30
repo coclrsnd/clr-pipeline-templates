@@ -52,7 +52,7 @@ jobs:
         run: |
           ecs_task_definition=$(aws ecs describe-task-definition --task-definition loanapi --region ${{ secrets.AWS_REGION }} --query 'taskDefinition' --output json)
           encoded_task_definition=$(echo "$ecs_task_definition" | base64)
-          echo "ecs_task_definition=$encoded_task_definition" >> $GITHUB_ENV
+          echo "ecs_task_definition=$encoded_task_definition"
 
       # Step 4: Modify task definition with new Docker image tag
       - name: Update ECS Task Definition with new image
@@ -69,7 +69,7 @@ jobs:
 
           # Output the new task definition ARN
           echo "New task definition ARN: $new_task_definition"
-          echo "new_task_definition=$new_task_definition" >> $GITHUB_ENV
+          echo "new_task_definition=$new_task_definition"
 
       # Step 5: Update ECS Service with the new task definition
       - name: Update ECS Service

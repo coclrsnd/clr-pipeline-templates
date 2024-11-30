@@ -47,37 +47,12 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # Step 3: Get the current ECS task definition
-      - name: Get current ECS Task Definition
-        id: ecs-task-def
-        run: |
-          ecs_task_definition=$(aws ecs describe-task-definition --task-definition loanapi --region ${{ secrets.AWS_REGION }} --query 'taskDefinition' --output json)
-          encoded_task_definition=$(echo "$ecs_task_definition" | base64)
-          echo "ecs_task_definition=$encoded_task_definition"
-
-      # Step 4: Modify task definition with new Docker image tag
-      - name: Update ECS Task Definition with new image
-        run: |
-          # Modify the ECS task definition's container image with the new Docker tag
-          updated_task_definition=$(echo "$ecs_task_definition" | jq --arg image "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:${{ inputs.docker-tag }}" \
-            '.containerDefinitions[0].image = $image')
-            
-            # Register the new ECS task definition
-            new_task_definition=$(echo "$updated_task_definition" | aws ecs register-task-definition \
-              --family loanapi \
-              --container-definitions file:///dev/stdin \
-              --query 'taskDefinition.taskDefinitionArn' --output text)
-              
-              echo "New task definition ARN: $new_task_definition"
-              echo "new_task_definition=$new_task_definition"
-
-      # Step 5: Update ECS Service with the new task definition
-      - name: Update ECS Service
-        run: |
-          # Update the ECS service with the new task definition
-          aws ecs update-service --cluster ${{ secrets.ECS_CLUSTER_NAME }} --service ${{ inputs.service-name }} --force-new-deployment --task-definition ${{ env.new_task_definition }}
-
-      # Step 6: Wait for ECS service to stabilize
-      - name: Wait for ECS service to stabilize
-        run: |
-          # Wait for the ECS service to stabilize
-          aws ecs wait services-stable --cluster ${{ secrets.ECS_CLUSTER_NAME }} --services ${{ inputs.service-name }}
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
+          service: ${{ inputs.service-name }}
+          task-definition: ecs-task-definition.json
+          container-name: ${{ inputs.service-name }}
+          image: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}

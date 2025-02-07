@@ -8,11 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 9.0.0-preview.6
-          include-prerelease: true
+      - name: Manually Install .NET 9.0 Preview
+        run: |
+          wget https://download.visualstudio.microsoft.com/download/pr/123456/dotnet-sdk-9.0.0-preview.6-linux-x64.tar.gz -O dotnet-sdk.tar.gz
+          mkdir -p $HOME/dotnet
+          tar -xzf dotnet-sdk.tar.gz -C $HOME/dotnet
+          echo "$HOME/dotnet" >> $GITHUB_PATH
+          echo "DOTNET_ROOT=$HOME/dotnet" >> $GITHUB_ENV
       - name: Restore dependencies
         run: dotnet restore
       - name: Build

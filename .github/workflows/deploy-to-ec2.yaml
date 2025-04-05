@@ -31,24 +31,20 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: ${{ inputs.working-directory }}  # Set the working directory globally
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Add EC2 host to known hosts
+      - name: Add EC2 Host to Known Hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Debug SSH Connection
         run: |
           echo "${{ secrets.AWS_EC2_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh -v -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.AWS_EC2_KEY }}
+          ssh -vvv -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.3

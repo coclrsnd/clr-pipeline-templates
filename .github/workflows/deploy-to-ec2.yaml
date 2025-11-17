@@ -25,15 +25,14 @@ on:
         required: true
       AWS_ACCOUNT_ID: 
         required: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}  # Set the working directory globally
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
       - name: Add EC2 Host to Known Hosts
         run: |
           mkdir -p ~/.ssh
@@ -53,19 +52,18 @@ jobs:
           username: ${{ secrets.AWS_EC2_USER }}
           key: ${{ secrets.AWS_EC2_KEY }}
           script: |
-            # Log in to AWS ECR
+            cd ${{ inputs.working-directory }} || exit 1
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-            
-            # Pull the latest image for the specified service
+
             docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
-            
-            # Update the image for the specified service in docker-compose.override.yml
+
             sed -i "s|image: .*|image: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}|g" docker-compose.override.yml
-            
-            # Stop and remove only the specified service (if running)
+
             docker-compose -f docker-compose.yml -f docker-compose.override.yml stop ${{ inputs.service-name }}
             docker-compose -f docker-compose.yml -f docker-compose.override.yml rm -f ${{ inputs.service-name }}
-            
+            docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ${{ inputs.service-name }}
+
             # Start the specific service using both files
             docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ${{ inputs.service-name }}
+

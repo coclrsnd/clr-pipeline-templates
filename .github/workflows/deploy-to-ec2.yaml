@@ -33,11 +33,20 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+        
       - name: Add EC2 Host to Known Hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+      
+      - name: Setup SSH Key
+        run: |
+          echo "${{ secrets.AWS_EC2_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+      
+      - name: Test SSH Connection
+        run: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
 
       - name: Debug SSH Connection
         run: |
@@ -66,4 +75,5 @@ jobs:
 
             # Start the specific service using both files
             docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ${{ inputs.service-name }}
+
 

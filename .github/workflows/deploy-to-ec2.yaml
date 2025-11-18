@@ -34,25 +34,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # --- Step 1: Configure AWS credentials ---
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      # --- Step 2: Login to ECR locally (optional) ---
-      - name: Login to Amazon ECR
-        run: |
-          aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
-          docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-
-      # --- Step 3: Pull Docker image locally (optional) ---
-      - name: Pull Docker image from ECR
-        run: |
-          docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
-
       - name: Prepare SSH key and known_hosts
         run: |
           mkdir -p ~/.ssh
@@ -88,3 +69,4 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
             docker compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
           REMOTE
+

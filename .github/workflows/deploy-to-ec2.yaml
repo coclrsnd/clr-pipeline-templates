@@ -19,12 +19,13 @@ on:
         required: true
       AWS_EC2_HOST:
         required: true
-      AWS_EC2_USER: 
-        required: true        
-      AWS_EC2_KEY: 
+      AWS_EC2_USER:
         required: true
-      AWS_ACCOUNT_ID: 
+      AWS_EC2_KEY_B64:
         required: true
+      AWS_ACCOUNT_ID:
+        required: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -33,47 +34,31 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-        
-      - name: Add EC2 Host to Known Hosts
+      - name: Prepare SSH key and known_hosts
         run: |
           mkdir -p ~/.ssh
+          # decode base64 private key (preserves newlines)
+          echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 --decode > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # populate known_hosts (avoid prompting)
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-      
-      - name: Setup SSH Key
+
+      - name: Test SSH Connection (verbose)
+        run: ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -vvv ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
+        continue-on-error: false
+
+      - name: Deploy to EC2 (pull image & restart service)
         run: |
-          echo "${{ secrets.AWS_EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-      
-      - name: Test SSH Connection
-        run: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
-
-      - name: Debug SSH Connection
-        run: |
-          echo "${{ secrets.AWS_EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh -vvv -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
-
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v0.1.3
-        with:
-          host: ${{ secrets.AWS_EC2_HOST }}
-          username: ${{ secrets.AWS_EC2_USER }}
-          key: ${{ secrets.AWS_EC2_KEY }}
-          script: |
-            cd ${{ inputs.working-directory }} || exit 1
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}
-
+          set -e
+          # decode again on remote side if you prefer copying file; here we use SSH to run commands
+          ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash -s <<'REMOTE'
+            cd "${{ inputs.working-directory }}" || exit 1
+            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
+              docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+            docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
             sed -i "s|image: .*|image: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}|g" docker-compose.override.yml
-
-            docker-compose -f docker-compose.yml -f docker-compose.override.yml stop ${{ inputs.service-name }}
-            docker-compose -f docker-compose.yml -f docker-compose.override.yml rm -f ${{ inputs.service-name }}
-            docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ${{ inputs.service-name }}
-
-            # Start the specific service using both files
-            docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d ${{ inputs.service-name }}
-
-
+            docker-compose -f docker-compose.yml -f docker-compose.override.yml stop "${{ inputs.service-name }}" || true
+            docker-compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
+            docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
+          REMOTE

@@ -53,6 +53,21 @@ jobs:
           set -e
           # decode again on remote side if you prefer copying file; here we use SSH to run commands
           ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash -s <<'REMOTE'
+          echo "Current working directory:"
+          pwd
+        
+          echo "Listing files:"
+          ls -lah
+          
+          echo "Trying to cd into: ${{ inputs.working-directory }}"
+          cd "${{ inputs.working-directory }}" || { 
+            echo "❌ Directory not found: ${{ inputs.working-directory }}"; 
+            exit 1; 
+          }
+        
+          echo "Now inside directory:"
+          pwd
+          ls -lah
             cd "${{ inputs.working-directory }}" || exit 1
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
@@ -62,3 +77,4 @@ jobs:
             docker-compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
             docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
           REMOTE
+

@@ -54,7 +54,7 @@ jobs:
             set -e
       
             echo "📁 Switching to: ${{ inputs.working-directory }}"
-            cd "${{ inputs.working-directory }}"
+            cd "/home/ec2-user/clr-latest/src"
       
             echo "🔐 Logging into ECR"
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
@@ -71,4 +71,5 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
             docker compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
           REMOTE
+
 

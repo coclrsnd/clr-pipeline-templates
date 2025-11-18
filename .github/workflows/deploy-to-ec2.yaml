@@ -34,13 +34,30 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      # --- Step 1: Configure AWS credentials ---
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # --- Step 2: Login to ECR locally (optional) ---
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
+          docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+
+      # --- Step 3: Pull Docker image locally (optional) ---
+      - name: Pull Docker image from ECR
+        run: |
+          docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
+
       - name: Prepare SSH key and known_hosts
         run: |
           mkdir -p ~/.ssh
-          # decode base64 private key (preserves newlines)
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          # populate known_hosts (avoid prompting)
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
@@ -52,24 +69,22 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash -s <<REMOTE
             set -e
-      
-            echo "📁 Switching to: ${{ inputs.working-directory }}"
-            cd "/home/ec2-user/clr-latest/src"
-      
-            echo "🔐 Logging into ECR"
+
+            echo "📁 Switching to working directory"
+            cd "${{ inputs.working-directory }}"
+
+            echo "🔐 Logging into ECR on EC2"
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-      
-            echo "⬇️ Pulling image"
+
+            echo "⬇️ Pulling Docker image"
             docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
-      
-            echo "✏️ Updating override file"
+
+            echo "✏️ Updating override file with new image"
             sed -i "s|^\(\s*image:\).*|\1 ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}|" docker-compose.override.yml
-      
-            echo "♻️ Restarting service"
+
+            echo "♻️ Restarting service with Docker Compose"
             docker compose -f docker-compose.yml -f docker-compose.override.yml stop "${{ inputs.service-name }}" || true
             docker compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
             docker compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
           REMOTE
-
-

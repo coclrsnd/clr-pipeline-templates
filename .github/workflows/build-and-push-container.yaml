@@ -20,11 +20,15 @@ on:
         required: true
       AWS_ACCOUNT_ID:
         required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}  # This enables GitHub Environments protection if set
+    environment: ${{ inputs.environment }}
 
     steps:
       - uses: actions/checkout@v4
@@ -52,4 +56,5 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
           docker tag ${{ inputs.service-name }}:latest $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
           docker push $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
+
 

@@ -4,17 +4,17 @@ on:
   workflow_call:
     inputs:
       docker-tag:
-        required: true
         type: string
-      working-directory:
         required: true
-        type: string
       service-name:
-        required: true
         type: string
+        required: true
+      working-directory:
+        type: string
+        required: true
       environment:
-        required: true
         type: string
+        required: true
     secrets:
       AWS_REGION:
         required: true
@@ -27,45 +27,32 @@ on:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment }}  # This enables GitHub Environments protection if set
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install Docker Compose
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: ECR Login
-        run: |
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} |
-          docker login --username AWS --password-stdin \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker Image
+      - name: Build, tag, and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ inputs.docker-tag }}
         run: |
-          docker-compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
-
-      - name: Tag Image
-        run: |
-          docker tag ${{ inputs.service-name }}:latest \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
-
-      - name: Push Image to ECR
-        run: |
-          docker push \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
-
+          cd ${{ inputs.working-directory }}
+          docker compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
+          docker tag ${{ inputs.service-name }}:latest $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
+          docker push $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG

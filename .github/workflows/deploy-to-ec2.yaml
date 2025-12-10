@@ -20,6 +20,13 @@ on:
         required: true
       AWS_ACCOUNT_ID:
         required: true
+      AWS_EC2_HOST:
+        required: true
+      # AWS_EC2_USER must be optional/non-required for the default 'ubuntu' to work
+      AWS_EC2_USER:
+        required: false 
+      AWS_EC2_KEY_B64:
+        required: true
 
 jobs:
   deploy:
@@ -62,4 +69,5 @@ jobs:
 
             echo "Deploy complete!"
           EOF
+
 

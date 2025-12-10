@@ -22,7 +22,6 @@ on:
         required: true
       AWS_EC2_HOST:
         required: true
-      # AWS_EC2_USER must be optional/non-required for the default 'ubuntu' to work
       AWS_EC2_USER:
         required: false 
       AWS_EC2_KEY_B64:
@@ -37,11 +36,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install SSH key
+      - name: Install SSH key (FIXED DEBUG)
         run: |
           # --- DEBUGGING OUTPUT ---
           echo "DEBUG: AWS_EC2_HOST value: '${{ secrets.AWS_EC2_HOST }}'"
-          echo "DEBUG: AWS_EC2_KEY_B64 (truncated status): '${{ secrets.AWS_EC2_KEY_B64 && secrets.AWS_EC2_KEY_B64[:15] || 'EMPTY' }}...'"
+          # FIX: Replaced unsupported slicing ([:15]) with the supported substring() function
+          echo "DEBUG: AWS_EC2_KEY_B64 status: '${{ secrets.AWS_EC2_KEY_B64 && substring(secrets.AWS_EC2_KEY_B64, 0, 15) || 'EMPTY' }}...'"
           echo "DEBUG: Running commands now..."
           # -------------------------
           
@@ -58,10 +58,10 @@ jobs:
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
-          # FIX: Replaced unsupported 'coalesce' with the supported logical OR '||'
+          # The SSH command is correct, using || for user fallback
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER || 'ubuntu' }}@${{ secrets.AWS_EC2_HOST }} << EOF
             set -e
-
+            # ... rest of deployment commands
             echo "Logging into ECR..."
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
@@ -69,7 +69,7 @@ jobs:
             echo "Pulling image: $IMAGE"
             docker pull $IMAGE
 
-            cd /path/to/your/app/${{ inputs.working-directory }}  # ADJUST THIS PATH!
+            cd /path/to/your/app/${{ inputs.working-directory }}
 
             echo "Updating docker-compose.override.yml..."
             sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
@@ -79,6 +79,3 @@ jobs:
 
             echo "Deploy complete!"
           EOF
-
-
-

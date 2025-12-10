@@ -22,7 +22,7 @@ on:
         required: true
       AWS_EC2_HOST:
         required: true
-      # CHANGE 1: Set to false so we can provide a default value
+      # AWS_EC2_USER must be optional/non-required for the default 'ubuntu' to work
       AWS_EC2_USER:
         required: false 
       AWS_EC2_KEY_B64:
@@ -48,8 +48,8 @@ jobs:
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
-          # CHANGE 2: Use the 'coalesce' function to default to 'ubuntu' if secrets.AWS_EC2_USER is not provided.
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ coalesce(secrets.AWS_EC2_USER, 'ubuntu') }}@${{ secrets.AWS_EC2_HOST }} << EOF
+          # FIX: Replaced unsupported 'coalesce' with the supported logical OR '||'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER || 'ubuntu' }}@${{ secrets.AWS_EC2_HOST }} << EOF
             set -e
 
             echo "Logging into ECR..."

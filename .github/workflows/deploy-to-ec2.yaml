@@ -78,7 +78,8 @@ jobs:
           
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
+          # ADDED -T FLAG HERE to suppress 'Pseudo-terminal' warning
+          ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
 
             # 1. ENVIRONMENT SETUP
@@ -87,15 +88,22 @@ jobs:
 
             # Create .env file from the multi-line secret
             echo "Creating .env file from GitHub Secrets..."
-            cat << ENV_FILE_END > .env
-            $ENV_CONTENT
-            ENV_FILE_END
+            
+            # --- FIX: Using a quoted delimiter 'ENV_FILE_END' ---
+            # This ensures the $ENV_CONTENT variable is written correctly.
+            # We use sed to strip leading/trailing whitespace from the ENV_CONTENT variable
+            # before writing it, which can cause issues with the Here Document.
+            echo "$ENV_CONTENT" | sed 's/^[ \t]*//;s/[ \t]*$//' > .env
+            
+            # ----------------------------------------------------
             
             # 2. DOCKER DEPLOYMENT LOGIC
             echo "Logging into AWS ECR..."
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
+            # ... (rest of the script remains the same)
+            
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
             
@@ -108,7 +116,6 @@ jobs:
             
             echo "Starting new container: $CONTAINER_NAME"
             
-            # Use 'docker run' to deploy the image with dynamic port mapping and .env file
             docker run -d \
               --name "$CONTAINER_NAME" \
               -p $PORT_MAPPING \
@@ -118,3 +125,4 @@ jobs:
             
             echo "Deployment completed successfully!"
           EOF
+

@@ -23,7 +23,7 @@ on:
       AWS_EC2_HOST:
         required: true
       AWS_EC2_USER:
-        required: false 
+        required: false
       AWS_EC2_KEY_B64:
         required: true
 
@@ -36,56 +36,56 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install SSH key (Shell Debug)
+      - name: Install SSH key
         run: |
-          # Use shell scripting to check and print variables reliably
-          HOST="${{ secrets.AWS_EC2_HOST }}"
-          KEY_B64="${{ secrets.AWS_EC2_KEY_B64 }}"
-          
-          echo "DEBUG: AWS_EC2_HOST value: '$HOST'"
-          
-          # Use shell conditional logic to print key status
-          if [ -z "$KEY_B64" ]; then
-            echo "DEBUG: AWS_EC2_KEY_B64 status: 'EMPTY...'"
-          else
-            echo "DEBUG: AWS_EC2_KEY_B64 status: '$(echo "$KEY_B64" | cut -c1-15)...'"
-          fi
-          
-          echo "DEBUG: Running commands now..."
-          
-          # --- Deployment Commands ---
+          echo "Setting up SSH key..."
           mkdir -p ~/.ssh
-          
-          # This command creates the key file
-          echo "$KEY_B64" | base64 -d > ~/.ssh/id_rsa
+          echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+
+          echo "Adding EC2 host to known_hosts..."
+          ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Test connectivity to EC2
+        run: |
+          echo "Pinging EC2 host..."
+          ping -c 4 "${{ secrets.AWS_EC2_HOST }}" || echo "Ping failed, continuing..."
           
-          # This command adds the host key and is the point of failure if HOST is empty
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          echo "Checking SSH port 22..."
+          nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port 22 unreachable" && exit 1)
 
       - name: Deploy on EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
-          # The SSH command is correct, using || for user fallback
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER || 'ubuntu' }}@${{ secrets.AWS_EC2_HOST }} << EOF
+          EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
+          HOST="${{ secrets.AWS_EC2_HOST }}"
+          IMAGE="$IMAGE"
+          
+          echo "Deploying to EC2 host $HOST as user $EC2_USER..."
+          
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
-            # ... rest of deployment commands
-            echo "Logging into ECR..."
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-            echo "Pulling image: $IMAGE"
-            docker pull $IMAGE
+            echo "Logging into AWS ECR..."
+            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
+              docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
-            cd /path/to/your/app/${{ inputs.working-directory }}
+            echo "Pulling Docker image: $IMAGE"
+            docker pull "$IMAGE"
 
-            echo "Updating docker-compose.override.yml..."
-            sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
+            echo "Switching to application directory..."
+            cd /home/$EC2_USER/${{ inputs.working-directory }}
 
-            echo "Starting services..."
+            echo "Updating docker-compose.override.yml with new image..."
+            if [ -f docker-compose.override.yml ]; then
+              sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
+            else
+              echo "image: $IMAGE" > docker-compose.override.yml
+            fi
+
+            echo "Restarting service using Docker Compose..."
             docker compose up -d --no-deps ${{ inputs.service-name }}
 
-            echo "Deploy complete!"
+            echo "Deployment completed successfully!"
           EOF
-

@@ -69,7 +69,7 @@ jobs:
           IMAGE="$IMAGE"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
           APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
-          PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
+          PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
           
           # 🎯 DEFINING THE PATH: The file is located in the user's HOME directory
           ENV_FILE_PATH="/home/$EC2_USER/.env" 
@@ -116,3 +116,4 @@ jobs:
             
             echo "Deployment completed successfully!"
           EOF
+

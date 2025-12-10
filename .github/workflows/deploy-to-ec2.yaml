@@ -70,21 +70,21 @@ jobs:
           APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
           
-          # --- CRITICAL FIX: BASE64 ENCODE THE SECRET ---
-          # This converts the multiline secret into a single, safe, URL-compatible string.
-          # We are using the internal GitHub Actions echo mechanism for safety.
+          # 1. CRITICAL FIX: BASE64 ENCODE ONLY THE ENV SECRET CONTENT
+          # This command must be fully self-contained and closed.
           ENCODED_ENV_CONTENT=$(echo -n "${{ secrets.APP_ENV_CONTENT }}" | base64 -w 0)
-          # ----------------------------------------------
-
+          
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
-          # Pass the encoded variable and other static variables into the SSH session
+          # 2. Start SSH and pass the variables
+          # We use single quotes around the variable assignment below to protect it
+          # from shell interpretation by the runner, while allowing the remote shell
+          # to use the value.
           ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
             
-            # Use the encoded content passed from the runner's shell environment
-            # This is safer than using $ENV_CONTENT directly in the Here Document.
-            ENCODED_ENV="$ENCODED_ENV_CONTENT" 
+            # Transfer the safely encoded variable content to a new variable inside the remote shell
+            ENCODED_ENV='$ENCODED_ENV_CONTENT' 
             
             # 1. ENVIRONMENT SETUP
             mkdir -p "$APP_ROOT_DIR"
@@ -92,6 +92,8 @@ jobs:
           
             # Create .env file by decoding the Base64 string
             echo "Creating .env file from GitHub Secrets..."
+            # Note: We use echo "\$ENCODED_ENV" to ensure the remote shell (not the local runner) 
+            # expands the variable, and pipe the result to the decoder.
             echo "\$ENCODED_ENV" | base64 -d > .env
             
             # 2. DOCKER DEPLOYMENT LOGIC

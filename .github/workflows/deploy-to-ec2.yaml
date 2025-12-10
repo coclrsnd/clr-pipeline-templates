@@ -12,6 +12,9 @@ on:
       working-directory:
         required: true
         type: string
+      environment:
+        required: true
+        type: string
     secrets:
       AWS_REGION:
         required: true
@@ -29,12 +32,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Prepare SSH key
+      - name: Prepare SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 --decode > ~/.ssh/id_rsa
@@ -48,35 +51,26 @@ jobs:
 
       - name: Deploy to EC2
         run: |
-          ssh -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash <<'EOF'
-            set -euo pipefail
+          ssh -i ~/.ssh/id_rsa \
+          ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash << 'EOF'
 
-            echo "📁 Switching to deployment directory"
+            set -e
+
             cd /home/ec2-user
 
-            echo "🔐 Logging into ECR"
+            IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
+
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
               docker login --username AWS --password-stdin \
               "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
-            IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
-
-            echo "⬇️ Pulling latest image"
             docker pull "$IMAGE"
 
-            echo "✏️ Updating docker-compose.override.yml"
-            mkdir -p /home/ec2-user
-            if [ -f docker-compose.override.yml ]; then
-              sed -i "s|image:.*|image: $IMAGE|g" docker-compose.override.yml
-            else
-              echo "image: $IMAGE" > docker-compose.override.yml
-            fi
+            sed -i "s|image:.*|image: $IMAGE|" docker-compose.override.yml
 
-            echo "♻️ Restarting service using Docker Compose"
-            docker compose pull "${{ inputs.service-name }}" || true
-            docker compose stop "${{ inputs.service-name }}" || true
-            docker compose rm -f "${{ inputs.service-name }}" || true
+            docker compose pull "${{ inputs.service-name }}"
+            docker compose stop "${{ inputs.service-name }}"
+            docker compose rm -f "${{ inputs.service-name }}"
             docker compose up -d "${{ inputs.service-name }}"
 
-            echo "🚀 Deployment completed successfully!"
           EOF

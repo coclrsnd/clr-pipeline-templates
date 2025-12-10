@@ -39,9 +39,19 @@ jobs:
 
       - name: Install SSH key
         run: |
+          # --- DEBUGGING OUTPUT ---
+          echo "DEBUG: AWS_EC2_HOST value: '${{ secrets.AWS_EC2_HOST }}'"
+          echo "DEBUG: AWS_EC2_KEY_B64 (truncated status): '${{ secrets.AWS_EC2_KEY_B64 && secrets.AWS_EC2_KEY_B64[:15] || 'EMPTY' }}...'"
+          echo "DEBUG: Running commands now..."
+          # -------------------------
+          
           mkdir -p ~/.ssh
+          
+          # This command creates the key file
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          
+          # This command adds the host key and is the likely point of failure
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy on EC2
@@ -69,5 +79,6 @@ jobs:
 
             echo "Deploy complete!"
           EOF
+
 
 

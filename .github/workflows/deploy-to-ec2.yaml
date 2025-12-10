@@ -32,45 +32,51 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Prepare SSH key and known_hosts
+      - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Test SSH Connection (verbose)
-        run: ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -vvv ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo Connected"
-        continue-on-error: false
+      - name: Test SSH Connection
+        run: |
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_rsa \
+            ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo 'SSH OK'"
 
       - name: Deploy to EC2
         run: |
-          ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash -s <<REMOTE
-            set -e
+          ssh -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash <<'EOF'
+            set -euo pipefail
 
-            echo "📁 Switching to working directory"
+            echo "📁 Switching to deployment directory"
             cd /home/ec2-user
 
-            ls
-
-
-            echo "🔐 Logging into ECR on EC2"
+            echo "🔐 Logging into ECR"
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
-              docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+              docker login --username AWS --password-stdin \
+              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
-            echo "⬇️ Pulling Docker image"
-            docker pull "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
+            IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
 
-            echo "✏️ Updating override file with new image"
-            sed -i "s|^\(\s*image:\).*|\1 ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}|" docker-compose.override.yml
+            echo "⬇️ Pulling latest image"
+            docker pull "$IMAGE"
 
-            echo "♻️ Restarting service with Docker Compose"
-            docker compose -f docker-compose.yml -f docker-compose.override.yml stop "${{ inputs.service-name }}" || true
-            docker compose -f docker-compose.yml -f docker-compose.override.yml rm -f "${{ inputs.service-name }}" || true
-            docker compose -f docker-compose.yml -f docker-compose.override.yml up -d "${{ inputs.service-name }}"
-          REMOTE
+            echo "✏️ Updating docker-compose.override.yml"
+            mkdir -p /home/ec2-user
+            if [ -f docker-compose.override.yml ]; then
+              sed -i "s|image:.*|image: $IMAGE|g" docker-compose.override.yml
+            else
+              echo "image: $IMAGE" > docker-compose.override.yml
+            fi
 
+            echo "♻️ Restarting service using Docker Compose"
+            docker compose pull "${{ inputs.service-name }}" || true
+            docker compose stop "${{ inputs.service-name }}" || true
+            docker compose rm -f "${{ inputs.service-name }}" || true
+            docker compose up -d "${{ inputs.service-name }}"
 
+            echo "🚀 Deployment completed successfully!"
+          EOF

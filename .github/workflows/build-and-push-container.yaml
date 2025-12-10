@@ -18,10 +18,6 @@ on:
     secrets:
       AWS_REGION:
         required: true
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
       AWS_ACCOUNT_ID:
         required: true
 
@@ -56,3 +52,4 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
           docker tag ${{ inputs.service-name }}:latest $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
           docker push $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
+

@@ -68,34 +68,37 @@ jobs:
           IMAGE="$IMAGE"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
           APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
-          
-          # Pass the .env content secret and port mapping to shell variables
-          ENV_CONTENT='${{ secrets.APP_ENV_CONTENT }}' 
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
           
+          # --- CRITICAL FIX: BASE64 ENCODE THE SECRET ---
+          # This converts the multiline secret into a single, safe, URL-compatible string.
+          # We are using the internal GitHub Actions echo mechanism for safety.
+          ENCODED_ENV_CONTENT=$(echo -n "${{ secrets.APP_ENV_CONTENT }}" | base64 -w 0)
+          # ----------------------------------------------
+
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
-          # Use -T to prevent PTY warning
+          # Pass the encoded variable and other static variables into the SSH session
           ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
-
+            
+            # Use the encoded content passed from the runner's shell environment
+            # This is safer than using $ENV_CONTENT directly in the Here Document.
+            ENCODED_ENV="$ENCODED_ENV_CONTENT" 
+            
             # 1. ENVIRONMENT SETUP
             mkdir -p "$APP_ROOT_DIR"
             cd "$APP_ROOT_DIR"
-
-            # Create .env file from the multi-line secret using robust pipe/sed
+          
+            # Create .env file by decoding the Base64 string
             echo "Creating .env file from GitHub Secrets..."
-            
-            # --- CRITICAL FIX: Ensure $ENV_CONTENT is written as a file, not executed as commands. ---
-            # Pipe the ENV_CONTENT to sed to strip unwanted whitespace, then redirect output to .env.
-            echo "$ENV_CONTENT" | sed 's/^[ \t]*//;s/[ \t]*$//' > .env
-            # --------------------------------------------------------------------------------------
+            echo "\$ENCODED_ENV" | base64 -d > .env
             
             # 2. DOCKER DEPLOYMENT LOGIC
             echo "Logging into AWS ECR..."
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-
+          
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
             

@@ -1,3 +1,4 @@
+# .github/workflows/deploy-to-ec2.yaml
 name: Deploy to EC2
 
 on:
@@ -15,49 +16,85 @@ on:
       environment:
         type: string
         required: true
+
     secrets:
       AWS_REGION:
         required: true
       AWS_ACCOUNT_ID:
         required: true
-      AWS_EC2_HOST:
-        required: true
-      AWS_EC2_USER:
-        required: true
-      AWS_EC2_KEY_B64:
-        required: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment }}  # This triggers approvals + loads env-specific secrets
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install SSH key
+      - name: Configure SSH (the one that works every time)
         run: |
           mkdir -p ~/.ssh
+
+          # Fail fast if secrets are missing (very helpful when you forget to set them per environment)
+          if [[ -z "${{ secrets.AWS_EC2_KEY_B64 }}" ]]; then
+            echo "ERROR: AWS_EC2_KEY_B64 is missing in environment '${{ inputs.environment }}'"
+            exit 1
+          fi
+          if [[ -z "${{ secrets.AWS_EC2_HOST }}" ]]; then
+            echo "ERROR: AWS_EC2_HOST is missing in environment '${{ inputs.environment }}'"
+            exit 1
+          fi
+          if [[ -z "${{ secrets.AWS_EC2_USER }}" ]]; then
+            echo "ERROR: AWS_EC2_USER is missing in environment '${{ inputs.environment }}'"
+            exit 1
+          fi
+
+          # Install private key
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
+
+          # Add EC2 host to known_hosts (this was the line breaking everything before)
+          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Make SSH forgiving in CI (recommended)
+          cat <<EOF >> ~/.ssh/config
+          Host ${{ secrets.AWS_EC2_HOST }}
+            HostName ${{ secrets.AWS_EC2_HOST }}
+            User ${{ secrets.AWS_EC2_USER ? format('User {0}', secrets.AWS_EC2_USER) : 'User ubuntu' }}
+            IdentityFile ~/.ssh/id_rsa
+            StrictHostKeyChecking accept-new
+          EOF
 
       - name: Deploy to EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
+          APP_PATH: /home/ubuntu/your-app/${{ inputs.working-directory }}   # CHANGE THIS TO YOUR ACTUAL PATH
         run: |
-          ssh -o StrictHostKeyChecking=accept-new ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << 'EOF'
-            set -e
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          echo "Deploying ${{ inputs.service-name }}:${{ inputs.docker-tag }} to ${{ inputs.environment }}..."
 
-            docker pull ${{ env.IMAGE }}
+          ssh ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << EOF
+          set -e
 
-            cd /home/ubuntu/your-app/${{ inputs.working-directory }}   # CHANGE THIS PATH
+          echo "Logging in to ECR..."
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \\
+            docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-            sed -i "s|image: .*|image: ${{ env.IMAGE }}|g" docker-compose.override.yml
+          echo "Pulling new image: $IMAGE"
+          docker pull $IMAGE
 
-            docker compose up -d --no-deps ${{ inputs.service-name }}
+          echo "Navigating to app directory..."
+          cd $APP_PATH
+
+          echo "Updating docker-compose.override.yml with new image..."
+          sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
+
+          echo "Restarting service..."
+          docker compose up -d --no-deps ${{ inputs.service-name }}
+
+          echo "Deployment successful!"
           EOF
 
+          # Optional: show running containers
+          docker ps --filter "name=${{ inputs.service-name }}" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+          EOF

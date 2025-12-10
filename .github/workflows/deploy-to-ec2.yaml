@@ -4,17 +4,17 @@ on:
   workflow_call:
     inputs:
       docker-tag:
-        required: true
         type: string
+        required: true
       service-name:
-        required: true
         type: string
+        required: true
       working-directory:
-        required: true
         type: string
+        required: true
       environment:
+        type: string           # dev/test/prod
         required: true
-        type: string
     secrets:
       AWS_REGION:
         required: true
@@ -32,45 +32,36 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # 👈 NOW environment works (because it is defined INSIDE reusable workflow)
     environment: ${{ inputs.environment }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Prepare SSH Key
+      - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Test SSH Connection
-        run: |
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_rsa \
-            ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo 'SSH OK'"
-
       - name: Deploy to EC2
         run: |
-          ssh -i ~/.ssh/id_rsa \
-          ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash << 'EOF'
-
+          ssh -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} bash << 'EOF'
             set -e
 
-            cd /home/ec2-user
+            echo "Deploying to environment: ${{ inputs.environment }}"
 
             IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
 
-            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" |
-              docker login --username AWS --password-stdin \
-              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} |
+              docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
             docker pull "$IMAGE"
 
-            sed -i "s|image:.*|image: $IMAGE|" docker-compose.override.yml
+            sed -i "s|image:.*|image: $IMAGE|g" docker-compose.override.yml
 
-            docker compose pull "${{ inputs.service-name }}"
-            docker compose stop "${{ inputs.service-name }}"
-            docker compose rm -f "${{ inputs.service-name }}"
             docker compose up -d "${{ inputs.service-name }}"
-
           EOF

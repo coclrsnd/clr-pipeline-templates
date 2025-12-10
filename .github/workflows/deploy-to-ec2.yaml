@@ -32,8 +32,9 @@ on:
         required: false
       AWS_EC2_KEY_B64:
         required: true
+      # APP_ENV_CONTENT secret is no longer required or used for file creation.
       APP_ENV_CONTENT:
-        required: true
+        required: false 
 
 jobs:
   deploy:
@@ -70,37 +71,29 @@ jobs:
           APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
           
-          # 1. CRITICAL FIX: BASE64 ENCODE ONLY THE ENV SECRET CONTENT
-          # This command must be fully self-contained and closed.
-          ENCODED_ENV_CONTENT=$(echo -n "${{ secrets.APP_ENV_CONTENT }}" | base64 -w 0)
+          # 🎯 DEFINING THE PATH: The file is located in the user's HOME directory
+          ENV_FILE_PATH="/home/$EC2_USER/.env" 
           
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
-          # 2. Start SSH and pass the variables
-          # We use single quotes around the variable assignment below to protect it
-          # from shell interpretation by the runner, while allowing the remote shell
-          # to use the value.
+          # Use -T to prevent the harmless 'Pseudo-terminal will not be allocated' warning
           ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
             
-            # Transfer the safely encoded variable content to a new variable inside the remote shell
-            ENCODED_ENV='$ENCODED_ENV_CONTENT' 
-            
-            # 1. ENVIRONMENT SETUP
-            mkdir -p "$APP_ROOT_DIR"
-            cd "$APP_ROOT_DIR"
-          
-            # Create .env file by decoding the Base64 string
-            echo "Creating .env file from GitHub Secrets..."
-            # Note: We use echo "\$ENCODED_ENV" to ensure the remote shell (not the local runner) 
-            # expands the variable, and pipe the result to the decoder.
-            echo "\$ENCODED_ENV" | base64 -d > .env
+            # 1. ENVIRONMENT CHECK
+            echo "Checking for existing environment file at: $ENV_FILE_PATH"
+            # Ensure the file exists before attempting to run Docker
+            if [ ! -f "$ENV_FILE_PATH" ]; then
+                echo "Error: Environment file not found at $ENV_FILE_PATH."
+                echo "Please ensure the .env file exists in the user's home directory (/home/$EC2_USER/.env) on the EC2 host."
+                exit 1
+            fi
             
             # 2. DOCKER DEPLOYMENT LOGIC
             echo "Logging into AWS ECR..."
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-          
+            
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
             
@@ -113,11 +106,11 @@ jobs:
             
             echo "Starting new container: $CONTAINER_NAME"
             
-            # Use 'docker run' to deploy the image
+            # Use 'docker run' to deploy the image, referencing the existing file on the host
             docker run -d \
               --name "$CONTAINER_NAME" \
               -p $PORT_MAPPING \
-              --env-file "$APP_ROOT_DIR/.env" \
+              --env-file "$ENV_FILE_PATH" \
               --restart always \
               "$IMAGE"
             

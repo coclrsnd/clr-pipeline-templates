@@ -1,4 +1,4 @@
-name: Deploy to EC2
+name: Deploy to EC2 (Docker Run)
 
 on:
   workflow_call:
@@ -15,6 +15,12 @@ on:
       environment:
         type: string
         required: true
+      host-port:
+        type: string
+        required: true
+      container-port:
+        type: string
+        required: true
     secrets:
       AWS_REGION:
         required: true
@@ -25,6 +31,8 @@ on:
       AWS_EC2_USER:
         required: false
       AWS_EC2_KEY_B64:
+        required: true
+      APP_ENV_CONTENT:
         required: true
 
 jobs:
@@ -54,19 +62,36 @@ jobs:
           echo "Checking SSH port 22..."
           nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port 22 unreachable" && exit 1)
 
-      - name: Deploy on EC2
+      - name: Deploy on EC2 (Docker Run)
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
           EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
           IMAGE="$IMAGE"
+          CONTAINER_NAME="${{ inputs.service-name }}-latest"
+          APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
           
-          echo "Deploying to EC2 host $HOST as user $EC2_USER..."
+          # Pass the .env content secret and port mapping to shell variables
+          ENV_CONTENT='${{ secrets.APP_ENV_CONTENT }}' 
+          PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
+          
+          echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
 
+            # 1. ENVIRONMENT SETUP
+            mkdir -p "$APP_ROOT_DIR"
+            cd "$APP_ROOT_DIR"
+
+            # Create .env file from the multi-line secret
+            echo "Creating .env file from GitHub Secrets..."
+            cat << ENV_FILE_END > .env
+            $ENV_CONTENT
+            ENV_FILE_END
+            
+            # 2. DOCKER DEPLOYMENT LOGIC
             echo "Logging into AWS ECR..."
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
@@ -74,22 +99,22 @@ jobs:
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
             
-            echo "Switching to application directory..."
-            cd /home/$EC2_USER
-
-            ls
-
-            echo "Updating docker-compose.override.yml with new image..."
-            if [ -f docker-compose.override.yml ]; then
-              sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
-            else
-              echo "image: $IMAGE" > docker-compose.override.yml
+            # Stop and remove any existing container
+            if docker ps -a --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
+              echo "Stopping and removing existing container: $CONTAINER_NAME"
+              docker stop "$CONTAINER_NAME"
+              docker rm "$CONTAINER_NAME"
             fi
-
-            echo "Restarting service using Docker Compose..."
-            docker compose up -d --no-deps ${{ inputs.service-name }}
-
+            
+            echo "Starting new container: $CONTAINER_NAME"
+            
+            # Use 'docker run' to deploy the image with dynamic port mapping and .env file
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              -p $PORT_MAPPING \
+              --env-file "$APP_ROOT_DIR/.env" \
+              --restart always \
+              "$IMAGE"
+            
             echo "Deployment completed successfully!"
           EOF
-
-

@@ -73,15 +73,11 @@ jobs:
 
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
-
-            ls 
             
-            cd /home/$EC2_USER/ 
+            echo "Switching to application directory..."
+            cd /home/$EC2_USER
 
             ls
-
-            echo "Switching to application directory..."
-            cd /home/$EC2_USER/${{ inputs.working-directory }}
 
             echo "Updating docker-compose.override.yml with new image..."
             if [ -f docker-compose.override.yml ]; then
@@ -95,4 +91,5 @@ jobs:
 
             echo "Deployment completed successfully!"
           EOF
+
 

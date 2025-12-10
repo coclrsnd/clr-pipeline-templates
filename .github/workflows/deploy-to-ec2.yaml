@@ -36,23 +36,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install SSH key (FIXED DEBUG)
+      - name: Install SSH key (Shell Debug)
         run: |
-          # --- DEBUGGING OUTPUT ---
-          echo "DEBUG: AWS_EC2_HOST value: '${{ secrets.AWS_EC2_HOST }}'"
-          # FIX: Replaced unsupported slicing ([:15]) with the supported substring() function
-          echo "DEBUG: AWS_EC2_KEY_B64 status: '${{ secrets.AWS_EC2_KEY_B64 && substring(secrets.AWS_EC2_KEY_B64, 0, 15) || 'EMPTY' }}...'"
-          echo "DEBUG: Running commands now..."
-          # -------------------------
+          # Use shell scripting to check and print variables reliably
+          HOST="${{ secrets.AWS_EC2_HOST }}"
+          KEY_B64="${{ secrets.AWS_EC2_KEY_B64 }}"
           
+          echo "DEBUG: AWS_EC2_HOST value: '$HOST'"
+          
+          # Use shell conditional logic to print key status
+          if [ -z "$KEY_B64" ]; then
+            echo "DEBUG: AWS_EC2_KEY_B64 status: 'EMPTY...'"
+          else
+            echo "DEBUG: AWS_EC2_KEY_B64 status: '$(echo "$KEY_B64" | cut -c1-15)...'"
+          fi
+          
+          echo "DEBUG: Running commands now..."
+          
+          # --- Deployment Commands ---
           mkdir -p ~/.ssh
           
           # This command creates the key file
-          echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+          echo "$KEY_B64" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           
-          # This command adds the host key and is the likely point of failure
-          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
+          # This command adds the host key and is the point of failure if HOST is empty
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy on EC2
         env:
@@ -79,3 +88,4 @@ jobs:
 
             echo "Deploy complete!"
           EOF
+

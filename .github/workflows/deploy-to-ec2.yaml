@@ -56,9 +56,6 @@ jobs:
 
       - name: Test connectivity to EC2
         run: |
-          echo "Pinging EC2 host..."
-          ping -c 4 "${{ secrets.AWS_EC2_HOST }}" || echo "Ping failed, continuing..."
-          
           echo "Checking SSH port 22..."
           nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port 22 unreachable" && exit 1)
 
@@ -78,7 +75,7 @@ jobs:
           
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
-          # ADDED -T FLAG HERE to suppress 'Pseudo-terminal' warning
+          # Use -T to prevent PTY warning
           ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
             set -e
 
@@ -86,24 +83,19 @@ jobs:
             mkdir -p "$APP_ROOT_DIR"
             cd "$APP_ROOT_DIR"
 
-            # Create .env file from the multi-line secret
+            # Create .env file from the multi-line secret using robust pipe/sed
             echo "Creating .env file from GitHub Secrets..."
             
-            # --- FIX: Using a quoted delimiter 'ENV_FILE_END' ---
-            # This ensures the $ENV_CONTENT variable is written correctly.
-            # We use sed to strip leading/trailing whitespace from the ENV_CONTENT variable
-            # before writing it, which can cause issues with the Here Document.
+            # --- CRITICAL FIX: Ensure $ENV_CONTENT is written as a file, not executed as commands. ---
+            # Pipe the ENV_CONTENT to sed to strip unwanted whitespace, then redirect output to .env.
             echo "$ENV_CONTENT" | sed 's/^[ \t]*//;s/[ \t]*$//' > .env
-            
-            # ----------------------------------------------------
+            # --------------------------------------------------------------------------------------
             
             # 2. DOCKER DEPLOYMENT LOGIC
             echo "Logging into AWS ECR..."
             aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
-            # ... (rest of the script remains the same)
-            
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
             
@@ -116,6 +108,7 @@ jobs:
             
             echo "Starting new container: $CONTAINER_NAME"
             
+            # Use 'docker run' to deploy the image
             docker run -d \
               --name "$CONTAINER_NAME" \
               -p $PORT_MAPPING \
@@ -125,4 +118,3 @@ jobs:
             
             echo "Deployment completed successfully!"
           EOF
-

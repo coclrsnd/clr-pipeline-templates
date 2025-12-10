@@ -43,27 +43,21 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy on EC2
+      - name: Deploy to EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << EOF
+          ssh -o StrictHostKeyChecking=accept-new ${{ secrets.AWS_EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << 'EOF'
             set -e
-
-            echo "Logging into ECR..."
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \\
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-            echo "Pulling image: $IMAGE"
-            docker pull $IMAGE
+            docker pull ${{ env.IMAGE }}
 
-            cd /path/to/your/app/${{ inputs.working-directory }}  # ADJUST THIS PATH!
+            cd /home/ubuntu/your-app/${{ inputs.working-directory }}   # CHANGE THIS PATH
 
-            echo "Updating docker-compose.override.yml..."
-            sed -i "s|image: .*|image: $IMAGE|g" docker-compose.override.yml
+            sed -i "s|image: .*|image: ${{ env.IMAGE }}|g" docker-compose.override.yml
 
-            echo "Starting services..."
             docker compose up -d --no-deps ${{ inputs.service-name }}
-
-            echo "Deploy complete!"
           EOF
+

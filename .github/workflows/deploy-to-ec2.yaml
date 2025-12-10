@@ -74,6 +74,12 @@ jobs:
             echo "Pulling Docker image: $IMAGE"
             docker pull "$IMAGE"
 
+            ls 
+            
+            cd /home/$EC2_USER/ 
+
+            ls
+
             echo "Switching to application directory..."
             cd /home/$EC2_USER/${{ inputs.working-directory }}
 
@@ -89,3 +95,4 @@ jobs:
 
             echo "Deployment completed successfully!"
           EOF
+

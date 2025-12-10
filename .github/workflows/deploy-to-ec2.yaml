@@ -18,8 +18,6 @@ on:
     secrets:
       AWS_REGION:
         required: true
-      AWS_ECR_REPOSITORY:
-        required: true
       AWS_EC2_HOST:
         required: true
       AWS_EC2_USER:
@@ -54,7 +52,7 @@ jobs:
 
             echo "Deploying to environment: ${{ inputs.environment }}"
 
-            IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.AWS_ECR_REPOSITORY }}:${{ inputs.docker-tag }}"
+            IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}"
 
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} |
               docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
@@ -65,3 +63,4 @@ jobs:
 
             docker compose up -d "${{ inputs.service-name }}"
           EOF
+

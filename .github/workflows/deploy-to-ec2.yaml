@@ -65,7 +65,8 @@ jobs:
           PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
           COMMON_ENV_FILE="/home/$EC2_USER/.env.common"
           SERVICE_ENV_FILE="/home/$EC2_USER/.env.${SERVICE_NAME}"
-          MERGED_ENV_FILE="/tmp/.env.merged"
+          MERGED_ENV_FILE="/tmp/.env.${SERVICE_NAME}.merged"
+          FINAL_ENV_FILE="/tmp/.env.${SERVICE_NAME}.final"
 
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
@@ -101,6 +102,7 @@ jobs:
                 key=$(echo "$key" | xargs)
                 value=$(echo "$value" | xargs)
                 eval "$key=\"$value\""
+                echo "$value"
             done
             set +a
             
@@ -108,10 +110,15 @@ jobs:
 
             echo "=== STEP 4: Substitute variables into merged env ==="
             # envsubst now works because all variables are exported
-            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | envsubst > "$MERGED_ENV_FILE"
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
 
             echo "--- Merged env output ---"
             cat "$MERGED_ENV_FILE"
+
+            envsubst < "$MERGED_ENV_FILE" > "$FINAL_ENV_FILE"
+
+            echo "=== FINAL ENV FILE==="
+            cat "$FINAL_ENV_FILE"            
 
             echo "=== STEP 5: Log into ECR ==="
             aws ecr get-login-password --region "\$AWS_REGION" \
@@ -158,4 +165,5 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 

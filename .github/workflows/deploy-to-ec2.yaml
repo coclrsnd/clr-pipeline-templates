@@ -90,11 +90,19 @@ jobs:
             echo "--- Service-specific env ---"
             cat "$SERVICE_ENV_FILE"
 
-            echo "=== STEP 3: Export variables from env files ==="
-            set -o allexport
-            source "$COMMON_ENV_FILE"
-            source "$SERVICE_ENV_FILE"
-            set +o allexport
+            echo "=== STEP 3: Export variables manually (line-by-line) ==="
+
+            export_env_file() {
+              while IFS='=' read -r key value; do
+                [[ -z "$key" || "$key" =~ ^# ]] && continue
+                export "$key"="$value"
+              done < "$1"
+            }
+
+            export_env_file "$COMMON_ENV_FILE"
+            export_env_file "$SERVICE_ENV_FILE"
+
+            echo "Environment variables exported."
 
             echo "=== STEP 4: Substitute variables into merged env ==="
             # envsubst now works because all variables are exported
@@ -148,3 +156,4 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+

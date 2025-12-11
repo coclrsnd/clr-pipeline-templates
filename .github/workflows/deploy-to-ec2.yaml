@@ -65,55 +65,65 @@ jobs:
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
           ENV_FILE="/home/$EC2_USER/.env"
 
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa $EC2_USER@$HOST << 'EOF'
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
+            # Re-inject variables inside EC2 session
+            IMAGE="$IMAGE"
+            SERVICE_NAME="$SERVICE_NAME"
+            CONTAINER_NAME="$CONTAINER_NAME"
+            PORT_MAPPING="$PORT_MAPPING"
+            ENV_FILE="$ENV_FILE"
+            AWS_REGION="${{ secrets.AWS_REGION }}"
+            AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+
             echo "=== STEP 1: Validate environment file ==="
-            if [ ! -f "$ENV_FILE" ]; then
-              echo "ERROR: Missing $ENV_FILE on EC2 host."
+            echo "Checking for: \$ENV_FILE"
+            if [ ! -f "\$ENV_FILE" ]; then
+              echo "ERROR: Missing \$ENV_FILE on EC2 host."
               exit 1
             fi
 
             echo "=== STEP 2: Log into ECR ==="
-            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
+            aws ecr get-login-password --region "\$AWS_REGION" \
               | docker login --username AWS --password-stdin \
-              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+              "\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com"
 
             echo "=== STEP 3: Remove old images for this service ==="
-            repo_prefix="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${SERVICE_NAME}"
-            old_images=$(docker images "$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
+            repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
+            old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
 
-            if [ -n "$old_images" ]; then
-              echo "Found old images:"
-              echo "$old_images"
-              docker rmi -f $old_images || true
+            if [ -n "\$old_images" ]; then
+              echo "Old images:"
+              echo "\$old_images"
+              docker rmi -f \$old_images || true
             else
-              echo "No old images found for this service."
+              echo "No old images found."
             fi
 
-            echo "=== STEP 4: Stop existing container if exists ==="
-            if docker ps -a --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
-              docker stop "$CONTAINER_NAME" || true
-              docker rm "$CONTAINER_NAME" || true
+            echo "=== STEP 4: Stop old container ==="
+            if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
+              docker stop "\$CONTAINER_NAME" || true
+              docker rm "\$CONTAINER_NAME" || true
             fi
 
             echo "=== STEP 5: Pull latest image ==="
-            docker pull "${IMAGE}"
+            docker pull "\$IMAGE"
 
-            echo "=== STEP 6: Start new container ==="
+            echo "=== STEP 6: Run new container ==="
             docker run -d \
-              --name "$CONTAINER_NAME" \
-              -p ${PORT_MAPPING} \
-              --env-file "$ENV_FILE" \
+              --name "\$CONTAINER_NAME" \
+              -p "\$PORT_MAPPING" \
+              --env-file "\$ENV_FILE" \
               --restart always \
-              "${IMAGE}"
+              "\$IMAGE"
 
-            echo "=== STEP 7: Confirm container running ==="
+            echo "=== STEP 7: Verify container ==="
             sleep 2
-            docker ps | grep "$CONTAINER_NAME"
+            docker ps | grep "\$CONTAINER_NAME"
 
-            echo "=== DONE: Deployment successful ==="
+            echo "=== SUCCESS: Deployment complete ==="
           EOF
 
       - name: Ensure SSH closed
-        run: echo "SSH session closed properly."
+        run: echo "SSH completed successfully."

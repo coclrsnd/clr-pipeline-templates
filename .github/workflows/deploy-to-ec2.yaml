@@ -1,30 +1,23 @@
 name: Deploy to EC2 (Docker Run)
-
 on:
   workflow_call:
     inputs:
       docker-tag:
-        description: 'The Docker image tag to deploy (e.g., latest, 1.2.3)'
         type: string
         required: true
       service-name:
-        description: 'The name of the service (used for image repo and container name)'
         type: string
         required: true
       working-directory:
-        description: 'The working directory on the EC2 instance (currently unused, but kept for completeness)'
         type: string
         required: true
       environment:
-        description: 'The target environment (e.g., staging, production)'
         type: string
         required: true
       host-port:
-        description: 'The port on the EC2 host to expose the service on'
         type: string
         required: true
       container-port:
-        description: 'The port inside the Docker container'
         type: string
         required: true
     secrets:
@@ -37,7 +30,6 @@ on:
       AWS_EC2_USER:
         required: false
       AWS_EC2_KEY_B64:
-        description: 'Base64 encoded SSH private key (Recommended: use plain key content for webfactory/ssh-agent)'
         required: true
       APP_ENV_CONTENT:
         required: false
@@ -48,28 +40,17 @@ jobs:
     environment: ${{ inputs.environment }}
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # -----------------------------------------------------------------
-      # ⚠️ Improvement: Replaced manual key setup with dedicated action
-      # This securely loads the key into the SSH agent for the duration of the job.
-      # NOTE: For this action, you should store the *plain* (not Base64 encoded) key in the secret.
-      # If you MUST keep the key as base64 in the secret, you would decode it first:
-      # ${{ secrets.AWS_EC2_KEY_B64 }} | base64 -d
-      # -----------------------------------------------------------------
-      - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.AWS_EC2_KEY_B64 }}
-
-      # Use ssh-keyscan to add host to known_hosts using the new agent setup
-      - name: Add EC2 Host Key
-        run: ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: Test connectivity (using default port 22)
-        # Using ssh directly is often better than nc for testing availability
-        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=no "${{ secrets.AWS_EC2_USER || 'ec2-user' }}@${{ secrets.AWS_EC2_HOST }}" "echo 'SSH connection successful'" || (echo "SSH connection failed" && exit 1)
+      - name: Test connectivity
+        run: |
+          nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port unreachable" && exit 1)
 
       - name: Deploy on EC2
         env:
@@ -79,31 +60,14 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
-          PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}" # Note: docker run syntax is host:container
-
-          # Define remote file paths
+          PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
           COMMON_ENV_FILE="/home/$EC2_USER/.env.common"
           SERVICE_ENV_FILE="/home/$EC2_USER/.env.${SERVICE_NAME}"
-          MERGED_ENV_FILE="/home/$EC2_USER/${SERVICE_NAME}.env.merged"
-          FINAL_ENV_FILE="/home/$EC2_USER/${SERVICE_NAME}.env"
+          MERGED_ENV_FILE="/tmp/.env.merged"
 
-          # Use the SSH agent connection implicitly
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 "$EC2_USER@$HOST" << EOF
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
-            # === DEPENDENCY CHECK (Added for robustness) ===
-            echo "=== CHECK: Verifying Dependencies ==="
-            if ! command -v envsubst &> /dev/null; then
-              echo "ERROR: 'envsubst' command not found. Install 'gettext' package."
-              exit 1
-            fi
-            if ! command -v aws &> /dev/null; then
-              echo "ERROR: 'aws cli' command not found. Install AWS CLI."
-              exit 1
-            fi
-            # ===============================================
-
-            # Export variables interpolated from GitHub runner to the remote shell
             IMAGE="$IMAGE"
             SERVICE_NAME="$SERVICE_NAME"
             CONTAINER_NAME="$CONTAINER_NAME"
@@ -125,22 +89,12 @@ jobs:
             echo "--- Service-specific env ---"
             cat "$SERVICE_ENV_FILE"
 
-            echo "=== STEP 3: Merge and substitute environment files ==="
+            echo "=== STEP 3: Merge environment files ==="
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | envsubst > "$MERGED_ENV_FILE"
 
-            # Load variables from environment files into the remote shell's environment
-            set -o allexport
-            source "$COMMON_ENV_FILE"
-            source "$SERVICE_ENV_FILE" # Service-specific variables override common variables here
-            set +o allexport
 
-            # Merge files contents (service file appended last for visual clarity, but substitution relies on 'source')
-            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
-
-            # Substitute variables (from the shell environment) into the merged file content
-            envsubst < "$MERGED_ENV_FILE" > "$FINAL_ENV_FILE"
-
-            echo "--- Final substituted env ---"
-            cat "$FINAL_ENV_FILE"
+            echo "--- Merged env ---"
+            cat "$MERGED_ENV_FILE"
 
             echo "=== STEP 4: Log into ECR ==="
             aws ecr get-login-password --region "\$AWS_REGION" \
@@ -149,19 +103,16 @@ jobs:
 
             echo "=== STEP 5: Remove old images for this service ==="
             repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
-            # Limit removal to images matching the repository prefix
             old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
             if [ -n "\$old_images" ]; then
               echo "Old images:"
               echo "\$old_images"
-              # Use xargs to handle spaces and many images safely
-              echo "\$old_images" | xargs -r docker rmi -f || true
+              docker rmi -f \$old_images || true
             else
               echo "No old images found."
             fi
 
             echo "=== STEP 6: Optional system prune ==="
-            # This is very aggressive. Consider 'docker image prune -f' instead.
             docker system prune -a -f --volumes
 
             echo "=== STEP 7: Stop old container ==="
@@ -174,13 +125,10 @@ jobs:
             docker pull "\$IMAGE"
 
             echo "=== STEP 9: Run new container with merged env file ==="
-            # The port mapping syntax in docker is -p HOST_PORT:CONTAINER_PORT
-            # Your original mapping was 'container-port:host-port', which is backwards.
-            # Fixed mapping here: PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
             docker run -d \
               --name "\$CONTAINER_NAME" \
               -p "\$PORT_MAPPING" \
-              --env-file "$FINAL_ENV_FILE" \
+              --env-file "$MERGED_ENV_FILE" \
               --restart always \
               "$IMAGE"
 
@@ -191,7 +139,5 @@ jobs:
             echo "=== SUCCESS: Deployment complete ==="
           EOF
 
-      - name: Ensure SSH key is removed (via agent)
-        # The webfactory/ssh-agent action automatically cleans up keys,
-        # but this step provides a clean end to the job.
-        run: echo "Deployment process completed."
+      - name: Ensure SSH closed
+        run: echo "SSH completed successfully."

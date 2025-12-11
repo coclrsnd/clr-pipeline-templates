@@ -101,12 +101,25 @@ jobs:
             echo "--- Service-specific env ---"
             cat "$SERVICE_ENV_FILE"
 
-            echo "=== STEP 3: Merge environment files ==="
+            echo "=== STEP 3: Merge and substitute environment files ==="
+
+            # Load common env
+            set -o allexport
+            source "$COMMON_ENV_FILE"
+            set +o allexport
+
+            # Load service-specific env (overrides common)
+            set -o allexport
+            source "$SERVICE_ENV_FILE"
+            set +o allexport
+
+            # Merge files (service overrides common because it is appended last)
             cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
 
+            # Substitute variables into final env
             envsubst < "$MERGED_ENV_FILE" > "$FINAL_ENV_FILE"
-            
-            echo "--- Merged env ---"
+
+            echo "--- Final substituted env ---"
             cat "$FINAL_ENV_FILE"
 
             echo "=== STEP 4: Log into ECR ==="
@@ -154,4 +167,5 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 

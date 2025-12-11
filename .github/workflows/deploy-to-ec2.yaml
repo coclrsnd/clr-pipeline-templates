@@ -85,11 +85,13 @@ jobs:
             ls -l "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" || echo "Some files do not exist"
 
             echo "=== STEP 1: Validate environment files ==="
+            echo "Checking files..."
             for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-              if [ ! -f "\$f" ]; then
-                echo "ERROR: Missing environment file \$f on EC2 host."
+              if [ ! -f "$f" ]; then
+                echo "ERROR: Missing environment file $f on EC2 host."
                 exit 1
               fi
+              echo "Found: $f"
             done
 
             echo "=== STEP 2: Log environment file contents ==="
@@ -191,6 +193,7 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 
 
 

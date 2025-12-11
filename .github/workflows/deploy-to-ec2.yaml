@@ -63,26 +63,26 @@ jobs:
           SERVICE_NAME="${{ inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
           PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
-          ENV_FILE="/home/$EC2_USER/.env"
+          COMMON_ENV_FILE="/home/$EC2_USER/.env.common"
+          SERVICE_ENV_FILE="/home/$EC2_USER/.env.${SERVICE_NAME}"
 
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
-            # Re-inject variables inside EC2 session
             IMAGE="$IMAGE"
             SERVICE_NAME="$SERVICE_NAME"
             CONTAINER_NAME="$CONTAINER_NAME"
             PORT_MAPPING="$PORT_MAPPING"
-            ENV_FILE="$ENV_FILE"
             AWS_REGION="${{ secrets.AWS_REGION }}"
             AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
 
-            echo "=== STEP 1: Validate environment file ==="
-            echo "Checking for: \$ENV_FILE"
-            if [ ! -f "\$ENV_FILE" ]; then
-              echo "ERROR: Missing \$ENV_FILE on EC2 host."
-              exit 1
-            fi
+            echo "=== STEP 1: Validate environment files ==="
+            for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
+              if [ ! -f "\$f" ]; then
+                echo "ERROR: Missing environment file \$f on EC2 host."
+                exit 1
+              fi
+            done
 
             echo "=== STEP 2: Log into ECR ==="
             aws ecr get-login-password --region "\$AWS_REGION" \
@@ -92,7 +92,6 @@ jobs:
             echo "=== STEP 3: Remove old images for this service ==="
             repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
             old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
-
             if [ -n "\$old_images" ]; then
               echo "Old images:"
               echo "\$old_images"
@@ -101,7 +100,7 @@ jobs:
               echo "No old images found."
             fi
 
-            # Clean containers, images, volumes, and networks
+            # Optional: clean dangling images, stopped containers, volumes, and networks
             docker system prune -a -f --volumes
 
             echo "=== STEP 4: Stop old container ==="
@@ -113,11 +112,12 @@ jobs:
             echo "=== STEP 5: Pull latest image ==="
             docker pull "\$IMAGE"
 
-            echo "=== STEP 6: Run new container ==="
+            echo "=== STEP 6: Run new container with common + service-specific env files ==="
             docker run -d \
               --name "\$CONTAINER_NAME" \
               -p "\$PORT_MAPPING" \
-              --env-file "\$ENV_FILE" \
+              --env-file "\$COMMON_ENV_FILE" \
+              --env-file "\$SERVICE_ENV_FILE" \
               --restart always \
               "\$IMAGE"
 
@@ -130,5 +130,3 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
-
-

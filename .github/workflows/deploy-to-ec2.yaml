@@ -101,6 +101,9 @@ jobs:
               echo "No old images found."
             fi
 
+            # Clean containers, images, volumes, and networks
+            docker system prune -a -f --volumes
+
             echo "=== STEP 4: Stop old container ==="
             if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
               docker stop "\$CONTAINER_NAME" || true
@@ -127,4 +130,5 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 

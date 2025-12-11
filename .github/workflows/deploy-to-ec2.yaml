@@ -62,7 +62,7 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
-          PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
+          PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
           ENV_FILE="/home/$EC2_USER/.env"
 
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
@@ -127,3 +127,4 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+

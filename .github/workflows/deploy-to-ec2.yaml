@@ -104,17 +104,28 @@ jobs:
             done
             
             # Export variables manually
-            set -a
+            set -a  # automatically export variables
             for file in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-                while IFS='=' read -r key value; do
-                    [[ -z "$key" || "$key" =~ ^# ]] && continue
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                    # Skip empty lines or comments
+                    [[ -z "$line" || "$line" =~ ^# ]] && continue
+                    
+                    # Split at the first '='
+                    key="${line%%=*}"       # everything before first =
+                    value="${line#*=}"      # everything after first =
+                    
+                    # Remove leading/trailing spaces
                     key=$(echo "$key" | xargs)
                     value=$(echo "$value" | xargs)
+                    
+                    # Evaluate value for composed variables
                     eval "$key=\"$value\""
+                    
                     echo "DEBUG: $key=$value"
                 done < "$file"
             done
             set +a
+
 
             
             echo "Environment variables exported."
@@ -176,6 +187,7 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 
 
 

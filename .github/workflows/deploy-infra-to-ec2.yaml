@@ -45,7 +45,7 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           IMAGE="${{ inputs.image }}"
-          CONTAINER_NAME="${{ inputs.service-name }}-infra"
+          CONTAINER_NAME="${{ inputs.service-name }}"
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
           ENV_FILE="/home/$EC2_USER/.env"
 

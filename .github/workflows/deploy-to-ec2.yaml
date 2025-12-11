@@ -96,17 +96,12 @@ jobs:
             echo "=== STEP 3: Export variables manually (line-by-line) ==="
             # 1. Read .env, ignore comments/empty lines, export variables
             set -a  # Automatically export variables
-            while IFS='=' read -r key value; do
-                # Skip empty lines or lines starting with #
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | while IFS='=' read -r key value; do
                 [[ -z "$key" || "$key" =~ ^# ]] && continue
-            
-                # Remove possible surrounding spaces
                 key=$(echo "$key" | xargs)
                 value=$(echo "$value" | xargs)
-            
-                # Evaluate value (handles composed variables)
                 eval "$key=\"$value\""
-            done < cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"
+            done
             set +a
             
             echo "Environment variables exported."
@@ -163,3 +158,4 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+

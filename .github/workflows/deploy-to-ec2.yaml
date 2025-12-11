@@ -92,7 +92,7 @@ jobs:
             cat "$SERVICE_ENV_FILE"
 
             echo "=== STEP 3: Merge environment files ==="
-            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | envsubst > "$MERGED_ENV_FILE"
             echo "--- Merged env ---"
             cat "$MERGED_ENV_FILE"
 
@@ -141,3 +141,4 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+

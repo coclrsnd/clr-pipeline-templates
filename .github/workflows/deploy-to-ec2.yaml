@@ -32,9 +32,8 @@ on:
         required: false
       AWS_EC2_KEY_B64:
         required: true
-      # APP_ENV_CONTENT secret is no longer required or used for file creation.
       APP_ENV_CONTENT:
-        required: false 
+        required: false
 
 jobs:
   deploy:
@@ -42,84 +41,81 @@ jobs:
     environment: ${{ inputs.environment }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install SSH key
         run: |
-          echo "Setting up SSH key..."
           mkdir -p ~/.ssh
           echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-          echo "Adding EC2 host to known_hosts..."
           ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Test connectivity to EC2
+      - name: Test connectivity
         run: |
-          echo "Checking SSH port 22..."
-          nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port 22 unreachable" && exit 1)
+          nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port unreachable" && exit 1)
 
-      - name: Deploy on EC2 (Docker Run)
+      - name: Deploy on EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
         run: |
           EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
-          IMAGE="$IMAGE"
           CONTAINER_NAME="${{ inputs.service-name }}-latest"
-          APP_ROOT_DIR="/home/$EC2_USER/${{ inputs.service-name }}_app" 
           PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
-          
-          # 🎯 DEFINING THE PATH: The file is located in the user's HOME directory
-          ENV_FILE_PATH="/home/$EC2_USER/.env" 
-          
-          echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
-          
-          # Use -T to prevent the harmless 'Pseudo-terminal will not be allocated' warning
+          ENV_FILE="/home/$EC2_USER/.env"
+
+          echo "Deploying to $HOST..."
+
           ssh -tt -n \
-          -o StrictHostKeyChecking=no \
-          -o ServerAliveInterval=5 \
-          -o ServerAliveCountMax=2 \
-          -i ~/.ssh/id_rsa $EC2_USER@$HOST << 'EOF'
-          
-          set -e
-            
-            # 1. ENVIRONMENT CHECK
-            echo "Checking for existing environment file at: $ENV_FILE_PATH"
-            # Ensure the file exists before attempting to run Docker
-            if [ ! -f "$ENV_FILE_PATH" ]; then
-                echo "Error: Environment file not found at $ENV_FILE_PATH."
-                echo "Please ensure the .env file exists in the user's home directory (/home/$EC2_USER/.env) on the EC2 host."
+            -o StrictHostKeyChecking=no \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=2 \
+            -o ConnectTimeout=10 \
+            -o BatchMode=yes \
+            -i ~/.ssh/id_rsa $EC2_USER@$HOST << 'EOF'
+              set -e
+
+              echo "=== STEP 1: Validate environment file ==="
+              if [ ! -f "$ENV_FILE" ]; then
+                echo "ERROR: Missing $ENV_FILE on EC2 host."
                 exit 1
-            fi
-            
-            # 2. DOCKER DEPLOYMENT LOGIC
-            echo "Logging into AWS ECR..."
-            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" | \
-              docker login --username AWS --password-stdin "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-            
-            echo "Pulling Docker image: $IMAGE"
-            docker pull "$IMAGE"
-            
-            # Stop and remove any existing container
-            if docker ps -a --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
-              echo "Stopping and removing existing container: $CONTAINER_NAME"
-              docker stop "$CONTAINER_NAME"
-              docker rm "$CONTAINER_NAME"
-            fi
-            
-            echo "Starting new container: $CONTAINER_NAME"
-            
-            # Use 'docker run' to deploy the image, referencing the existing file on the host
-            docker run -d \
-              --name "$CONTAINER_NAME" \
-              -p $PORT_MAPPING \
-              --env-file "$ENV_FILE_PATH" \
-              --restart always \
-              "$IMAGE"
-            
-            echo "Deployment completed successfully!"
+              fi
+
+              echo "=== STEP 2: Log into ECR ==="
+              aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
+                | docker login --username AWS --password-stdin \
+                "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+
+              echo "=== STEP 3: Pull latest image ==="
+              docker pull "$IMAGE"
+
+              echo "=== STEP 4: Stop existing container if exists ==="
+              if docker ps -a --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
+                docker stop "$CONTAINER_NAME" || true
+                docker rm "$CONTAINER_NAME" || true
+              fi
+
+              echo "=== STEP 5: Remove unused containers/images to save space ==="
+              docker system prune -f
+
+              echo "=== STEP 6: Start new container ==="
+              docker run -d \
+                --name "$CONTAINER_NAME" \
+                -p $PORT_MAPPING \
+                --env-file "$ENV_FILE" \
+                --restart always \
+                "$IMAGE"
+
+              echo "=== STEP 7: Confirm container running ==="
+              sleep 2
+              docker ps | grep "$CONTAINER_NAME"
+
+              echo "=== DONE: Deployment successful ==="
+
+              # ---- IMPORTANT ----
+              # Close SSH session gracefully
+              exit
           EOF
 
-
+      - name: Ensure SSH closed
+        run: echo "SSH session closed properly."

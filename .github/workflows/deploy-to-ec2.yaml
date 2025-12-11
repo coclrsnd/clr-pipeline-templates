@@ -85,15 +85,23 @@ jobs:
               fi
             done
 
-            echo "=== STEP 2: Merge common and service-specific env files ==="
-            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
+            echo "=== STEP 2: Log environment file contents ==="
+            echo "--- Common env ---"
+            cat "$COMMON_ENV_FILE"
+            echo "--- Service-specific env ---"
+            cat "$SERVICE_ENV_FILE"
 
-            echo "=== STEP 3: Log into ECR ==="
+            echo "=== STEP 3: Merge environment files ==="
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
+            echo "--- Merged env ---"
+            cat "$MERGED_ENV_FILE"
+
+            echo "=== STEP 4: Log into ECR ==="
             aws ecr get-login-password --region "\$AWS_REGION" \
               | docker login --username AWS --password-stdin \
               "\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com"
 
-            echo "=== STEP 4: Remove old images for this service ==="
+            echo "=== STEP 5: Remove old images for this service ==="
             repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
             old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
             if [ -n "\$old_images" ]; then
@@ -104,19 +112,19 @@ jobs:
               echo "No old images found."
             fi
 
-            echo "=== STEP 5: Optional system prune ==="
+            echo "=== STEP 6: Optional system prune ==="
             docker system prune -a -f --volumes
 
-            echo "=== STEP 6: Stop old container ==="
+            echo "=== STEP 7: Stop old container ==="
             if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
               docker stop "\$CONTAINER_NAME" || true
               docker rm "\$CONTAINER_NAME" || true
             fi
 
-            echo "=== STEP 7: Pull latest image ==="
+            echo "=== STEP 8: Pull latest image ==="
             docker pull "\$IMAGE"
 
-            echo "=== STEP 8: Run new container with merged env file ==="
+            echo "=== STEP 9: Run new container with merged env file ==="
             docker run -d \
               --name "\$CONTAINER_NAME" \
               -p "\$PORT_MAPPING" \
@@ -124,7 +132,7 @@ jobs:
               --restart always \
               "$IMAGE"
 
-            echo "=== STEP 9: Verify container ==="
+            echo "=== STEP 10: Verify container ==="
             sleep 2
             docker ps | grep "\$CONTAINER_NAME"
 

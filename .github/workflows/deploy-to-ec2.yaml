@@ -77,8 +77,13 @@ jobs:
           echo "Deploying to EC2 host $HOST as user $EC2_USER with port $PORT_MAPPING..."
           
           # Use -T to prevent the harmless 'Pseudo-terminal will not be allocated' warning
-          ssh -T -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$HOST << EOF
-            set -e
+          ssh -tt -n \
+          -o StrictHostKeyChecking=no \
+          -o ServerAliveInterval=5 \
+          -o ServerAliveCountMax=2 \
+          -i ~/.ssh/id_rsa $EC2_USER@$HOST << 'EOF'
+          
+          set -e
             
             # 1. ENVIRONMENT CHECK
             echo "Checking for existing environment file at: $ENV_FILE_PATH"
@@ -116,4 +121,5 @@ jobs:
             
             echo "Deployment completed successfully!"
           EOF
+
 

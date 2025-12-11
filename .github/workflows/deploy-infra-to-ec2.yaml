@@ -45,28 +45,50 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           IMAGE="${{ inputs.image }}"
-          CONTAINER_NAME="${{ inputs.service-name }}"
+          CONTAINER_NAME="$SERVICE_NAME"
           PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
-          ENV_FILE="/home/$EC2_USER/.env.common"
+          COMMON_ENV="/home/$EC2_USER/.env.common"
+          MERGED_ENV="/tmp/.env.${SERVICE_NAME}.merged"
 
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
-            echo "=== STEP 2: Stop old container ==="
+            echo "=== STEP 1: Validate env file ==="
+            if [ ! -f "$COMMON_ENV" ]; then
+              echo "ERROR: Environment file $COMMON_ENV NOT found!"
+              exit 1
+            fi
+
+            echo "=== STEP 2: Show original env file ==="
+            cat "$COMMON_ENV"
+
+            echo "=== STEP 3: Substitute variables inside env file ==="
+            # Load all system env vars first
+            set -o allexport
+            source "$COMMON_ENV"
+            set +o allexport
+
+            # Substitute using envsubst
+            envsubst < "$COMMON_ENV" > "$MERGED_ENV"
+
+            echo "=== STEP 4: Show merged & substituted env file ==="
+            cat "$MERGED_ENV"
+
+            echo "=== STEP 5: Stop old container ==="
             if docker ps -a --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
               docker stop "$CONTAINER_NAME" || true
               docker rm "$CONTAINER_NAME" || true
             fi
 
-            echo "=== STEP 3: Start new container ==="
+            echo "=== STEP 6: Start new container ==="
             docker run -d \
               --name "$CONTAINER_NAME" \
               -p "$PORT_MAPPING" \
-              --env-file "$ENV_FILE" \
+              --env-file "$MERGED_ENV" \
               --restart always \
               "$IMAGE"
 
-            echo "=== STEP 4: Verify container ==="
+            echo "=== STEP 7: Verify container ==="
             sleep 2
             docker ps | grep "$CONTAINER_NAME"
 

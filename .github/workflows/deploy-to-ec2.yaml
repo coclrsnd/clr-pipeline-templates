@@ -68,7 +68,7 @@ jobs:
           MERGED_ENV_FILE="/tmp/.env.${SERVICE_NAME}.merged"
           FINAL_ENV_FILE="/tmp/.env.${SERVICE_NAME}.final"
 
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << 'EOF'
             set -e
 
             IMAGE="$IMAGE"
@@ -193,6 +193,7 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 
 
 

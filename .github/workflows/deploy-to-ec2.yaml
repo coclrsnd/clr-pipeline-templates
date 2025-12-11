@@ -77,11 +77,15 @@ jobs:
             PORT_MAPPING="$PORT_MAPPING"
             AWS_REGION="${{ secrets.AWS_REGION }}"
             AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+            
+            echo "DEBUG: EC2_USER=$EC2_USER"
+            echo "DEBUG: SERVICE_NAME=$SERVICE_NAME"
+            echo "DEBUG: COMMON_ENV_FILE=$COMMON_ENV_FILE"
+            echo "DEBUG: SERVICE_ENV_FILE=$SERVICE_ENV_FILE"
+            ls -l "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" || echo "Some files do not exist"
 
             echo "=== STEP 1: Validate environment files ==="
             for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-
-
               if [ ! -f "\$f" ]; then
                 echo "ERROR: Missing environment file \$f on EC2 host."
                 exit 1
@@ -187,6 +191,7 @@ jobs:
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+
 
 
 

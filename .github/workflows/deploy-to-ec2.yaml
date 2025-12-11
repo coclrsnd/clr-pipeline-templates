@@ -41,6 +41,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
@@ -54,7 +55,7 @@ jobs:
 
       - name: Deploy on EC2
         env:
-          IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
+          IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs['service-name'] }}:${{ inputs['docker-tag'] }}
         run: |
           EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
@@ -89,19 +90,25 @@ jobs:
             echo "--- Service-specific env ---"
             cat "$SERVICE_ENV_FILE"
 
-            echo "=== STEP 3: Merge environment files ==="
+            echo "=== STEP 3: Export variables from env files ==="
+            set -o allexport
+            source "$COMMON_ENV_FILE"
+            source "$SERVICE_ENV_FILE"
+            set +o allexport
+
+            echo "=== STEP 4: Substitute variables into merged env ==="
+            # envsubst now works because all variables are exported
             cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | envsubst > "$MERGED_ENV_FILE"
 
-
-            echo "--- Merged env ---"
+            echo "--- Merged env output ---"
             cat "$MERGED_ENV_FILE"
 
-            echo "=== STEP 4: Log into ECR ==="
+            echo "=== STEP 5: Log into ECR ==="
             aws ecr get-login-password --region "\$AWS_REGION" \
               | docker login --username AWS --password-stdin \
               "\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com"
 
-            echo "=== STEP 5: Remove old images for this service ==="
+            echo "=== STEP 6: Remove old images for this service ==="
             repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
             old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
             if [ -n "\$old_images" ]; then
@@ -112,27 +119,27 @@ jobs:
               echo "No old images found."
             fi
 
-            echo "=== STEP 6: Optional system prune ==="
+            echo "=== STEP 7: Optional system prune ==="
             docker system prune -a -f --volumes
 
-            echo "=== STEP 7: Stop old container ==="
+            echo "=== STEP 8: Stop old container ==="
             if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
               docker stop "\$CONTAINER_NAME" || true
               docker rm "\$CONTAINER_NAME" || true
             fi
 
-            echo "=== STEP 8: Pull latest image ==="
+            echo "=== STEP 9: Pull latest image ==="
             docker pull "\$IMAGE"
 
-            echo "=== STEP 9: Run new container with merged env file ==="
+            echo "=== STEP 10: Run new container ==="
             docker run -d \
               --name "\$CONTAINER_NAME" \
               -p "\$PORT_MAPPING" \
               --env-file "$MERGED_ENV_FILE" \
               --restart always \
-              "$IMAGE"
+              "\$IMAGE"
 
-            echo "=== STEP 10: Verify container ==="
+            echo "=== STEP 11: Verify container ==="
             sleep 2
             docker ps | grep "\$CONTAINER_NAME"
 

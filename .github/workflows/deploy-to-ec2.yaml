@@ -32,6 +32,8 @@ on:
         required: false
       AWS_EC2_KEY_B64:
         required: true
+      APP_ENV_CONTENT:
+        required: false
 
 jobs:
   deploy:
@@ -41,9 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # -----------------------------------------------------
-      # Install Private EC2 SSH Key
-      # -----------------------------------------------------
+
+
+
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
@@ -51,16 +53,16 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # -----------------------------------------------------
-      # Test SSH Connectivity
-      # -----------------------------------------------------
+
+
+
       - name: Test connectivity
         run: |
           nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port unreachable" && exit 1)
 
-      # -----------------------------------------------------
-      # Deploy Service
-      # -----------------------------------------------------
+
+
+
       - name: Deploy on EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service-name }}:${{ inputs.docker-tag }}
@@ -68,62 +70,88 @@ jobs:
           EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
-          CONTAINER_NAME="${SERVICE_NAME}-latest"
-          PORT_MAPPING="${{ inputs.host-port }}:${{ inputs.container-port }}"
+          CONTAINER_NAME="${{ inputs.service-name }}-latest"
+          PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
           COMMON_ENV_FILE="/home/$EC2_USER/.env.common"
           SERVICE_ENV_FILE="/home/$EC2_USER/.env.${SERVICE_NAME}"
-          MERGED_ENV_FILE="/home/$EC2_USER/.env.merged.${SERVICE_NAME}"
+          MERGED_ENV_FILE="/home/$EC2_USER/${SERVICE_NAME}.env.merged"
+          FINAL_ENV_FILE="/home/$EC2_USER/${SERVICE_NAME}.env"
 
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
-            echo "=== 1) Validate env files ==="
+            IMAGE="$IMAGE"
+            SERVICE_NAME="$SERVICE_NAME"
+            CONTAINER_NAME="$CONTAINER_NAME"
+            PORT_MAPPING="$PORT_MAPPING"
+            AWS_REGION="${{ secrets.AWS_REGION }}"
+            AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+
+            echo "=== STEP 1: Validate environment files ==="
             for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
               if [ ! -f "\$f" ]; then
-                echo "ERROR: Missing: \$f"
+                echo "ERROR: Missing environment file \$f on EC2 host."
                 exit 1
               fi
             done
 
-            echo "=== 2) Show env files ==="
+            echo "=== STEP 2: Log environment file contents ==="
             echo "--- Common env ---"
             cat "$COMMON_ENV_FILE"
-            echo "--- Service env ---"
+            echo "--- Service-specific env ---"
             cat "$SERVICE_ENV_FILE"
 
-            echo "=== 3) Merge & substitute env correctly ==="
-            export \$(grep -v '^#' "$COMMON_ENV_FILE" | xargs)
-            export \$(grep -v '^#' "$SERVICE_ENV_FILE" | xargs)
+            echo "=== STEP 3: Merge environment files ==="
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" | envsubst > "$MERGED_ENV_FILE"
+            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
 
-            # Replace only placeholders in service env file
-            envsubst < "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
-
+            envsubst < "$MERGED_ENV_FILE" > "$FINAL_ENV_FILE"
+            
             echo "--- Merged env ---"
-            cat "$MERGED_ENV_FILE"
+            cat "$FINAL_ENV_FILE"
 
-            echo "=== 4) Authenticate to ECR ==="
-            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
+            echo "=== STEP 4: Log into ECR ==="
+            aws ecr get-login-password --region "\$AWS_REGION" \
               | docker login --username AWS --password-stdin \
-              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+              "\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com"
 
-            echo "=== 5) Stop old container ==="
-            docker stop "$CONTAINER_NAME" || true
-            docker rm "$CONTAINER_NAME" || true
+            echo "=== STEP 5: Remove old images for this service ==="
+            repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
+            old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
+            if [ -n "\$old_images" ]; then
+              echo "Old images:"
+              echo "\$old_images"
+              docker rmi -f \$old_images || true
+            else
+              echo "No old images found."
+            fi
 
-            echo "=== 6) Pull latest image ==="
-            docker pull "$IMAGE"
+            echo "=== STEP 6: Optional system prune ==="
+            docker system prune -a -f --volumes
 
-            echo "=== 7) Run new container ==="
+            echo "=== STEP 7: Stop old container ==="
+            if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
+              docker stop "\$CONTAINER_NAME" || true
+              docker rm "\$CONTAINER_NAME" || true
+            fi
+
+            echo "=== STEP 8: Pull latest image ==="
+            docker pull "\$IMAGE"
+
+            echo "=== STEP 9: Run new container with merged env file ==="
             docker run -d \
-              --name "$CONTAINER_NAME" \
-              --env-file "$MERGED_ENV_FILE" \
-              -p $PORT_MAPPING \
+              --name "\$CONTAINER_NAME" \
+              -p "\$PORT_MAPPING" \
+              --env-file "$FINAL_ENV_FILE" \
               --restart always \
               "$IMAGE"
 
-            echo "=== 8) Check container ==="
-            docker ps | grep "$CONTAINER_NAME"
+            echo "=== STEP 10: Verify container ==="
+            sleep 2
+            docker ps | grep "\$CONTAINER_NAME"
+
+            echo "=== SUCCESS: Deployment complete ==="
           EOF
 
-      - name: Finished
-        run: echo "Deployment completed successfully."
+      - name: Ensure SSH closed
+        run: echo "SSH completed successfully."

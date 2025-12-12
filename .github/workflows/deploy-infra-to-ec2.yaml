@@ -39,7 +39,7 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           IMAGE="${{ inputs.image }}"
-          COMPOSE_FILE="/home/$EC2_USER/docker-compose.yml"
+          COMPOSE_FILE="/home/$EC2_USER/docker-compose.infra.yml"
           COMMON_ENV="/home/$EC2_USER/.env.common"
 
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
@@ -48,23 +48,33 @@ jobs:
             echo "=== STEP 1: Update Compose image ==="
             sudo sed -i "s|image:.*${SERVICE_NAME}.*|image: $IMAGE|g" "$COMPOSE_FILE"
 
-            echo "Updated compose service:"
+            echo "Updated Compose service:"
             grep -A 3 "$SERVICE_NAME:" "$COMPOSE_FILE"
 
-            echo "=== STEP 2: Stop service if running ==="
+            echo "=== STEP 2: Stop service via Docker Compose ==="
             docker compose -f "$COMPOSE_FILE" stop "$SERVICE_NAME" || true
 
-            echo "=== STEP 3: Remove old container ==="
+            echo "=== STEP 3: Remove service via Docker Compose ==="
             docker compose -f "$COMPOSE_FILE" rm -f "$SERVICE_NAME" || true
 
-            echo "=== STEP 4: Start updated service ==="
+            echo "=== STEP 4: HARD REMOVE container if exists ==="
+            # matches ONLY exact container name
+            if docker ps -a --format '{{.Names}}' | grep -q "^$SERVICE_NAME$"; then
+              echo "Force removing leftover container..."
+              docker stop "$SERVICE_NAME" || true
+              docker rm -f "$SERVICE_NAME" || true
+            else
+              echo "No leftover container found."
+            fi
+
+            echo "=== STEP 5: Start updated service ==="
             docker compose -f "$COMPOSE_FILE" --env-file "$COMMON_ENV" up -d "$SERVICE_NAME"
 
-            echo "=== STEP 5: Verify service ==="
+            echo "=== STEP 6: Verify container ==="
             docker compose -f "$COMPOSE_FILE" ps "$SERVICE_NAME"
 
             echo "=== SUCCESS: Infra service deployed via Docker Compose ==="
           EOF
 
       - name: Done
-        run: echo "Infra deployment completed."
+        run: echo "Infra deployment completed successfully."

@@ -1,4 +1,4 @@
-name: Deploy to EC2 (Docker Run)
+name: Deploy to EC2 (Docker Compose)
 
 on:
   workflow_call:
@@ -15,12 +15,6 @@ on:
       environment:
         type: string
         required: true
-      host-port:
-        type: string
-        required: true
-      container-port:
-        type: string
-        required: true
     secrets:
       AWS_REGION:
         required: true
@@ -32,8 +26,6 @@ on:
         required: false
       AWS_EC2_KEY_B64:
         required: true
-      APP_ENV_CONTENT:
-        required: false
 
 jobs:
   deploy:
@@ -42,7 +34,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
@@ -61,143 +53,45 @@ jobs:
           EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
-          CONTAINER_NAME="${{ inputs.service-name }}-latest"
-          PORT_MAPPING="${{ inputs.container-port }}:${{ inputs.host-port }}"
-          COMMON_ENV_FILE="/home/$EC2_USER/.env.common"
-          SERVICE_ENV_FILE="/home/$EC2_USER/.env.${SERVICE_NAME}"
-          MERGED_ENV_FILE="/tmp/.env.${SERVICE_NAME}.merged"
-          FINAL_ENV_FILE="/tmp/.env.${SERVICE_NAME}.final"
+          COMPOSE_FILE="/home/$EC2_USER/docker-compose.dev.yml"
 
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=25 -o ServerAliveCountMax=4 -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e
 
-            IMAGE="$IMAGE"
-            SERVICE_NAME="$SERVICE_NAME"
-            CONTAINER_NAME="$CONTAINER_NAME"
-            PORT_MAPPING="$PORT_MAPPING"
-            AWS_REGION="${{ secrets.AWS_REGION }}"
-            AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
-            
-            echo "DEBUG: EC2_USER=$EC2_USER"
-            echo "DEBUG: SERVICE_NAME=$SERVICE_NAME"
-            echo "DEBUG: COMMON_ENV_FILE=$COMMON_ENV_FILE"
-            echo "DEBUG: SERVICE_ENV_FILE=$SERVICE_ENV_FILE"
-            ls -l "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" || echo "Some files do not exist"
-
-            echo "=== STEP 1: Validate environment files ==="
-            echo "Checking files..."
-            for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-              if [ ! -f "$f" ]; then
-                echo "ERROR: Missing environment file $f on EC2 host."
-                exit 1
-              fi
-              echo "Found: $f"
-            done
-
-            echo "=== STEP 2: Log environment file contents ==="
-            echo "--- Common env ---"
-            cat "$COMMON_ENV_FILE"
-            echo "--- Service-specific env ---"
-            cat "$SERVICE_ENV_FILE"
-
-            echo "=== STEP 3: Export variables manually (line-by-line) ==="
-            # 1. Read .env, ignore comments/empty lines, export variables
-            set -ex  # fail on error, print every command
-
-            # Validate files
-            for f in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-              [ -f "$f" ] || { echo "ERROR: $f missing"; exit 1; }
-            done
-            
-            # Export variables manually
-            set -a  # automatically export variables
-            for file in "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE"; do
-                while IFS= read -r line || [[ -n "$line" ]]; do
-                    # Skip empty lines or comments
-                    [[ -z "$line" || "$line" =~ ^# ]] && continue
-                    
-                    # Split at the first '='
-                    key="${line%%=*}"       # everything before first =
-                    value="${line#*=}"      # everything after first =
-                    
-                    # Remove leading/trailing spaces
-                    key=$(echo "$key" | xargs)
-                    value=$(echo "$value" | xargs)
-                    
-                    # Evaluate value for composed variables
-                    eval "$key=\"$value\""
-                    
-                    echo "DEBUG: $key=$value"
-                done < "$file"
-            done
-            set +a
-
-
-            
-            echo "Environment variables exported."
-
-            echo "=== STEP 4: Substitute variables into merged env ==="
-            # envsubst now works because all variables are exported
-            cat "$COMMON_ENV_FILE" "$SERVICE_ENV_FILE" > "$MERGED_ENV_FILE"
-
-            echo "--- Merged env output ---"
-            cat "$MERGED_ENV_FILE"
-
-            envsubst < "$MERGED_ENV_FILE" > "$FINAL_ENV_FILE"
-
-            echo "=== FINAL ENV FILE==="
-            cat "$FINAL_ENV_FILE"            
-
-            echo "=== STEP 5: Log into ECR ==="
-            aws ecr get-login-password --region "\$AWS_REGION" \
+            echo "=== STEP 1: Log in to ECR ==="
+            aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
               | docker login --username AWS --password-stdin \
-              "\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com"
+              "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
-            echo "=== STEP 6: Remove old images for this service ==="
-            repo_prefix="\$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/\$SERVICE_NAME"
-            old_images=\$(docker images "\$repo_prefix" --format '{{.Repository}}:{{.Tag}}')
-            if [ -n "\$old_images" ]; then
-              echo "Old images:"
-              echo "\$old_images"
-              docker rmi -f \$old_images || true
-            else
-              echo "No old images found."
-            fi
+            echo "=== STEP 2: Pull latest image ==="
+            docker pull "$IMAGE"
 
-            echo "=== STEP 7: Optional system prune ==="
-            docker system prune -a -f --volumes
+            echo "=== STEP 3: Update image inside docker-compose.yml ==="
+            sudo sed -i "s|image:.*${SERVICE_NAME}.*|image: $IMAGE|g" "$COMPOSE_FILE"
 
-            echo "=== STEP 8: Stop old container ==="
-            if docker ps -a --format '{{.Names}}' | grep -q "\$CONTAINER_NAME"; then
-              docker stop "\$CONTAINER_NAME" || true
-              docker rm "\$CONTAINER_NAME" || true
-            fi
+            echo "Updated service definition:"
+            grep -A 3 "${SERVICE_NAME}:" "$COMPOSE_FILE"
 
-            echo "=== STEP 9: Pull latest image ==="
-            docker pull "\$IMAGE"
+            echo "=== STEP 4: Stop only the updated service ==="
+            docker compose -f "$COMPOSE_FILE" stop "$SERVICE_NAME" || true
 
-            echo "=== STEP 10: Run new container ==="
-            docker run -d \
-              --name "\$CONTAINER_NAME" \
-              -p "\$PORT_MAPPING" \
-              --env-file "$MERGED_ENV_FILE" \
-              --restart always \
-              "\$IMAGE"
+            echo "=== STEP 5: Remove old container ==="
+            docker compose -f "$COMPOSE_FILE" rm -f "$SERVICE_NAME" || true
 
-            echo "=== STEP 11: Verify container ==="
-            sleep 2
-            docker ps | grep "\$CONTAINER_NAME"
+            echo "=== STEP 6: Start service with new image ==="
+            docker compose -f "$COMPOSE_FILE" up -d --no-deps "$SERVICE_NAME"
+
+            echo "=== STEP 7: Verify container ==="
+            docker compose -f "$COMPOSE_FILE" ps "$SERVICE_NAME"
+
+            echo "=== STEP 8: Remove old unused images ==="
+            docker image prune -a -f || true
+
+            echo "=== STEP 9: Full system prune (safe) ==="
+            docker system prune -f --volumes || true
 
             echo "=== SUCCESS: Deployment complete ==="
-          EOF
+EOF
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
-
-
-
-
-
-
-
-

@@ -91,7 +91,8 @@ jobs:
             docker system prune -f --volumes || true
 
             echo "=== SUCCESS: Deployment complete ==="
-EOF
+          EOF
 
       - name: Ensure SSH closed
         run: echo "SSH completed successfully."
+

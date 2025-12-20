@@ -52,10 +52,10 @@ jobs:
             grep -A 3 "$SERVICE_NAME:" "$COMPOSE_FILE"
 
             echo "=== STEP 2: Stop service via Docker Compose ==="
-            docker compose -f "$COMPOSE_FILE" stop "$SERVICE_NAME" || true
+            docker-compose -f "$COMPOSE_FILE" stop "$SERVICE_NAME" || true
 
             echo "=== STEP 3: Remove service via Docker Compose ==="
-            docker compose -f "$COMPOSE_FILE" rm -f "$SERVICE_NAME" || true
+            docker-compose -f "$COMPOSE_FILE" rm -f "$SERVICE_NAME" || true
 
             echo "=== STEP 4: HARD REMOVE container if exists ==="
             # matches ONLY exact container name
@@ -68,10 +68,10 @@ jobs:
             fi
 
             echo "=== STEP 5: Start updated service ==="
-            docker compose -f "$COMPOSE_FILE" --env-file "$COMMON_ENV" up -d "$SERVICE_NAME"
+            docker-compose -f "$COMPOSE_FILE" --env-file "$COMMON_ENV" up -d "$SERVICE_NAME"
 
             echo "=== STEP 6: Verify container ==="
-            docker compose -f "$COMPOSE_FILE" ps "$SERVICE_NAME"
+            docker-compose -f "$COMPOSE_FILE" ps "$SERVICE_NAME"
 
             echo "=== SUCCESS: Infra service deployed via Docker Compose ==="
           EOF

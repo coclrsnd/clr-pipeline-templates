@@ -40,7 +40,7 @@ jobs:
           SERVICE_NAME="${{ inputs.service-name }}"
           IMAGE="${{ inputs.image }}"
           COMPOSE_FILE="/home/$EC2_USER/docker-compose.infra.yml"
-          COMMON_ENV="/home/$EC2_USER/.env.common"
+          COMMON_ENV="/home/$EC2_USER/.env"
 
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e

@@ -24,8 +24,12 @@ on:
         required: true
       AWS_EC2_USER:
         required: false
+      AWS_EC2_KEY:
+        required: false
+        description: Raw SSH private key content (alternative to AWS_EC2_KEY_B64)
       AWS_EC2_KEY_B64:
-        required: true
+        required: false
+        description: Base64-encoded SSH private key (alternative to AWS_EC2_KEY)
 
 jobs:
   deploy:
@@ -39,21 +43,27 @@ jobs:
         run: |
           mkdir -p ~/.ssh
 
-          # Decode and validate SSH key
-          if [ -z "${{ secrets.AWS_EC2_KEY_B64 }}" ]; then
-            echo "ERROR: AWS_EC2_KEY_B64 secret is empty"
-            exit 1
-          fi
-
-          echo "Decoding SSH key from base64..."
-          if ! echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa 2>/dev/null; then
-            echo "ERROR: Failed to decode base64 SSH key"
+          # Handle SSH key from secret (supports both raw PEM and base64-encoded)
+          if [ -n "${{ secrets.AWS_EC2_KEY }}" ]; then
+            echo "Using raw SSH key from AWS_EC2_KEY secret..."
+            echo "${{ secrets.AWS_EC2_KEY }}" > ~/.ssh/id_rsa
+          elif [ -n "${{ secrets.AWS_EC2_KEY_B64 }}" ]; then
+            echo "Decoding SSH key from base64 (AWS_EC2_KEY_B64)..."
+            if ! echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa 2>/dev/null; then
+              echo "ERROR: Failed to decode base64 SSH key"
+              exit 1
+            fi
+          else
+            echo "ERROR: Neither AWS_EC2_KEY nor AWS_EC2_KEY_B64 secret is set"
+            echo "Please set one of these GitHub secrets:"
+            echo "- AWS_EC2_KEY: Raw SSH private key content"
+            echo "- AWS_EC2_KEY_B64: Base64-encoded SSH private key"
             exit 1
           fi
 
           chmod 600 ~/.ssh/id_rsa
 
-          # Verify the decoded key is valid
+          # Verify the key is valid
           if ! ssh-keygen -l -f ~/.ssh/id_rsa >/dev/null 2>&1; then
             echo "WARNING: Key may be in PEM format, attempting conversion..."
             if grep -q "BEGIN RSA PRIVATE KEY" ~/.ssh/id_rsa; then
@@ -85,16 +95,28 @@ jobs:
           HOST="${{ secrets.AWS_EC2_HOST }}"
           USERS="${{ secrets.AWS_EC2_USER || 'ec2-user ubuntu centos admin' }}"
 
+          SSH_SUCCESS=false
           for user in $USERS; do
             echo "Attempting SSH connection as user: $user"
             if ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa "$user@$HOST" "echo 'SSH connection successful as $user'" 2>&1; then
               echo "SUCCESS: SSH works with user '$user'"
               echo "EC2_USER=$user" >> $GITHUB_ENV
+              SSH_SUCCESS=true
               break
             else
               echo "FAILED: SSH authentication failed for user '$user'"
             fi
           done
+
+          if [ "$SSH_SUCCESS" != true ]; then
+            echo "ERROR: SSH authentication failed for all users. Please check:"
+            echo "1. SSH key is correctly set in AWS_EC2_KEY or AWS_EC2_KEY_B64 secret"
+            echo "2. Public key is installed on EC2 instance in ~/.ssh/authorized_keys"
+            echo "3. Security group allows SSH (port 22) from GitHub Actions IPs"
+            echo "4. Correct username is being used"
+            echo "SSH_SUCCESS value: $SSH_SUCCESS"
+            exit 1
+          fi
 
       - name: Deploy on EC2
         env:

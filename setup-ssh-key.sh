@@ -31,17 +31,28 @@ echo "Or use ssh-copy-id:"
 echo "ssh-copy-id -i ~/.ssh/ec2-deploy-key.pub ec2-user@YOUR_EC2_IP"
 echo
 
-echo "=== Private Key (base64 encoded for GitHub secret) ==="
-echo "Copy this base64 string to your GitHub repository secrets as 'AWS_EC2_KEY_B64':"
+echo "=== Private Key for GitHub Secrets ==="
 echo
+echo "OPTION 1: Raw key (recommended - copy entire content to AWS_EC2_KEY secret):"
+echo "----------------------------------------"
+cat ~/.ssh/ec2-deploy-key
+echo
+echo "----------------------------------------"
+echo
+echo "OPTION 2: Base64 encoded (copy to AWS_EC2_KEY_B64 secret):"
+echo "----------------------------------------"
 cat ~/.ssh/ec2-deploy-key | base64 -w 0
 echo
+echo "----------------------------------------"
 echo
 
 echo "=== Next Steps ==="
 echo "1. Add the public key to your EC2 instance's ~/.ssh/authorized_keys"
-echo "2. Copy the base64 private key to GitHub: Settings → Secrets → AWS_EC2_KEY_B64"
-echo "3. Ensure your EC2 security group allows SSH (port 22) from 0.0.0.0/0 or GitHub Actions IPs"
-echo "4. Set other required secrets: AWS_REGION, AWS_ACCOUNT_ID, AWS_EC2_HOST"
+echo "2. Set GitHub secret (choose one option):"
+echo "   - Go to: GitHub → Repository → Settings → Secrets and variables → Actions"
+echo "   - OPTION 1: Create secret 'AWS_EC2_KEY' with the raw key content above"
+echo "   - OPTION 2: Create secret 'AWS_EC2_KEY_B64' with the base64 content above"
+echo "3. Set other required secrets: AWS_REGION, AWS_ACCOUNT_ID, AWS_EC2_HOST"
+echo "4. Ensure your EC2 security group allows SSH (port 22) from GitHub Actions IPs"
 echo
 echo "For detailed instructions, see README.md"

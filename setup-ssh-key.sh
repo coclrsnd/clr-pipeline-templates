@@ -46,12 +46,16 @@ echo
 echo "----------------------------------------"
 echo
 
+echo "=== CRITICAL: Save this output for GitHub secrets ==="
+echo
+echo "Copy the content above to your GitHub repository secrets:"
+echo "GitHub → Repository → Settings → Secrets and variables → Actions → New repository secret"
+echo
+echo "REQUIRED: AWS_EC2_KEY (with the raw key content shown above)"
+echo
 echo "=== Next Steps ==="
 echo "1. Add the public key to your EC2 instance's ~/.ssh/authorized_keys"
-echo "2. Set GitHub secret (choose one option):"
-echo "   - Go to: GitHub → Repository → Settings → Secrets and variables → Actions"
-echo "   - OPTION 1: Create secret 'AWS_EC2_KEY' with the raw key content above"
-echo "   - OPTION 2: Create secret 'AWS_EC2_KEY_B64' with the base64 content above"
+echo "2. Set GitHub secret AWS_EC2_KEY with the raw key content shown above"
 echo "3. Set other required secrets: AWS_REGION, AWS_ACCOUNT_ID, AWS_EC2_HOST"
 echo "4. Ensure your EC2 security group allows SSH (port 22) from GitHub Actions IPs"
 echo

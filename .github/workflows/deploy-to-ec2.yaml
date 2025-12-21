@@ -38,22 +38,74 @@ jobs:
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+
+          # Decode and validate SSH key
+          if [ -z "${{ secrets.AWS_EC2_KEY_B64 }}" ]; then
+            echo "ERROR: AWS_EC2_KEY_B64 secret is empty"
+            exit 1
+          fi
+
+          echo "Decoding SSH key from base64..."
+          if ! echo "${{ secrets.AWS_EC2_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa 2>/dev/null; then
+            echo "ERROR: Failed to decode base64 SSH key"
+            exit 1
+          fi
+
           chmod 600 ~/.ssh/id_rsa
+
+          # Verify the decoded key is valid
+          if ! ssh-keygen -l -f ~/.ssh/id_rsa >/dev/null 2>&1; then
+            echo "WARNING: Key may be in PEM format, attempting conversion..."
+            if grep -q "BEGIN RSA PRIVATE KEY" ~/.ssh/id_rsa; then
+              echo "Converting PEM format key to OpenSSH format..."
+              # Remove passphrase and convert format
+              ssh-keygen -p -f ~/.ssh/id_rsa -m pem -P "" -N "" || true
+            fi
+          fi
+
+          # Final verification
+          echo "SSH key validation:"
+          if ssh-keygen -l -f ~/.ssh/id_rsa >/dev/null 2>&1; then
+            echo "✓ SSH key is valid"
+            ssh-keygen -l -f ~/.ssh/id_rsa
+          else
+            echo "✗ SSH key validation failed"
+            head -2 ~/.ssh/id_rsa
+            exit 1
+          fi
+
           ssh-keyscan -H "${{ secrets.AWS_EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Test connectivity
         run: |
+          echo "Testing SSH port connectivity..."
           nc -zv "${{ secrets.AWS_EC2_HOST }}" 22 || (echo "SSH port unreachable" && exit 1)
+
+          echo "Testing SSH key authentication..."
+          HOST="${{ secrets.AWS_EC2_HOST }}"
+          USERS="${{ secrets.AWS_EC2_USER || 'ec2-user ubuntu centos admin' }}"
+
+          for user in $USERS; do
+            echo "Attempting SSH connection as user: $user"
+            if ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa "$user@$HOST" "echo 'SSH connection successful as $user'" 2>&1; then
+              echo "SUCCESS: SSH works with user '$user'"
+              echo "EC2_USER=$user" >> $GITHUB_ENV
+              break
+            else
+              echo "FAILED: SSH authentication failed for user '$user'"
+            fi
+          done
 
       - name: Deploy on EC2
         env:
           IMAGE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs['service-name'] }}:${{ inputs['docker-tag'] }}
         run: |
-          EC2_USER="${{ secrets.AWS_EC2_USER || 'ec2-user' }}"
+          EC2_USER="${EC2_USER:-${{ secrets.AWS_EC2_USER || 'ec2-user' }}}"
           HOST="${{ secrets.AWS_EC2_HOST }}"
           SERVICE_NAME="${{ inputs.service-name }}"
           COMPOSE_FILE="/home/$EC2_USER/docker-compose.dev.yml"
+
+          echo "Using EC2 user: $EC2_USER"
 
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$EC2_USER@$HOST" << EOF
             set -e

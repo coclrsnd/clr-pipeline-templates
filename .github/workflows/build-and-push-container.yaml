@@ -51,8 +51,10 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ inputs.docker-tag }}
+          WEBAPP_DOCKERFILE: ${{ inputs.environment == 'prod' && 'Dockerfile' || 'Dockerfile.dev' }}
         run: |
           cd ${{ inputs.working-directory }}
+          echo "Environment: ${{ inputs.environment }}, Using WEBAPP_DOCKERFILE: $WEBAPP_DOCKERFILE"
           docker compose -f docker-compose.yml -f docker-compose.override.yml build ${{ inputs.service-name }}
           docker tag ${{ inputs.service-name }}:latest $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
           docker push $ECR_REGISTRY/${{ inputs.service-name }}:$IMAGE_TAG
